@@ -28,10 +28,10 @@ The application is deployed into an existing homelab built around a mini-PC runn
 |---|---|---|
 | Home Assistant OS | Proxmox VM | Hosts add-ons via Supervisor |
 | Ghostfolio | HA add-on | Portfolio of record |
-| PostgreSQL 14+ | Proxmox LXC (separate) | Database for Ghostfolio (and now this app) |
+| PostgreSQL 14+ | Proxmox LXC (separate) | Hosts the `ghostfolio` database (Ghostfolio) and the `investments_bi` database (InvestmentsBI) |
 | Tailscale | HA add-on | Remote access into the home network |
 
-The Postgres instance lives in its own Proxmox LXC, not bundled with Ghostfolio. Ghostfolio uses the `ghostfolio` schema (which we will not modify). InvestmentsBI creates and owns a new schema, `investments_bi`, on the same Postgres instance.
+The Postgres instance lives in its own Proxmox LXC, not bundled with Ghostfolio. Ghostfolio uses the `ghostfolio` database (which we will not modify). InvestmentsBI creates and owns a dedicated `investments_bi` database on the same Postgres instance — a fully separate database, not a schema within Ghostfolio's database. This ensures Ghostfolio upgrades, restores, or wipes cannot affect InvestmentsBI data.
 
 ---
 
@@ -97,9 +97,9 @@ SQLAlchemy 2.x has a typed query API that closes much of Prisma's developer-expe
 
 In-process scheduler that shares the FastAPI app's connection pools and logging. With a persistent jobstore in Postgres, jobs survive container restarts. For 7 jobs at the scale of a personal portfolio, anything heavier (Celery, Airflow, external cron) would be over-engineering.
 
-### Database: Postgres (existing) + new schema
+### Database: Postgres (existing) + new database
 
-Reuses existing infrastructure. Two schemas in one database; one backup covers both; logical separation is enforced by per-schema database users.
+Reuses existing infrastructure. InvestmentsBI owns a dedicated `investments_bi` database on the same Postgres instance. Keeping a separate database — rather than a schema within Ghostfolio's database — means Ghostfolio upgrades, restores, or wipes cannot affect InvestmentsBI data. Each database is backed up independently.
 
 ### Frontend: static HTML + vanilla JS + Chart.js 4
 
@@ -152,7 +152,7 @@ The design accepts this and provides three dimensions:
 
 ## 7. Data model
 
-Schema name: `investments_bi` (snake_case avoids Postgres identifier-quoting friction). Branding name everywhere user-facing: "InvestmentsBI".
+Database name: `investments_bi`. Tables live in the `public` schema of that database. Branding name everywhere user-facing: "InvestmentsBI".
 
 ### Tables
 
@@ -412,7 +412,7 @@ About a half-day of work per new dimension.
 
 ## 14. Operational notes
 
-- **Backups**: The Postgres LXC is already backed up as part of the Proxmox routine. No additional backup is required for InvestmentsBI's schema — it lives in the same database.
+- **Backups**: The Postgres LXC is already backed up as part of the Proxmox routine. The `investments_bi` database must be explicitly included in the backup job — it is a separate database from `ghostfolio` and will not be covered automatically if the backup only targets `ghostfolio`.
 - **Disaster recovery**: All InvestmentsBI data except `position_snapshot` and `portfolio_allocation_snapshot` history can be reconstructed from issuer sources. Lost history is lost permanently (see §6).
 - **Upgrades**: The HA add-on's update mechanism handles container upgrades. Schema migrations are managed by Alembic and run at container startup.
 - **Observability**: The `job_run` table is the primary source of operational truth. The `/api/health` endpoint summarizes it. A simple "operations" panel in the UI surfaces failed and partial jobs from the last 7 days.
@@ -447,7 +447,8 @@ In priority order:
 | ECB FX feed | Currency aggregator | Free, official, EUR-base, daily |
 | `product` table (generic) | `etf_fund` (specific) | Avoid future rename when expanding beyond ETFs |
 | Pre-computed allocation snapshots | Query-time aggregation | Dashboard latency; simpler frontend code |
-| Schema `investments_bi` | `"investmentsBI"` (quoted) | Avoid identifier-quoting friction in every query |
+| Separate `investments_bi` database | Schema within `ghostfolio` database | Ghostfolio upgrades/restores cannot affect InvestmentsBI data; independent backup; cleaner ownership boundary |
+| Database named `investments_bi` (snake_case) | `"investmentsBI"` (quoted) | Avoid identifier-quoting friction in every query |
 
 ---
 

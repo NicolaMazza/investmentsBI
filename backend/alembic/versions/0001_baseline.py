@@ -13,9 +13,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE SCHEMA IF NOT EXISTS investments_bi")
     op.execute("""
-        CREATE TABLE IF NOT EXISTS investments_bi.product (
+        CREATE TABLE IF NOT EXISTS product (
             isin            TEXT PRIMARY KEY,
             ticker          TEXT,
             name            TEXT NOT NULL,
@@ -33,5 +32,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS investments_bi.product")
-    op.execute("DROP SCHEMA IF EXISTS investments_bi")
+    op.execute("DROP TABLE IF EXISTS product")

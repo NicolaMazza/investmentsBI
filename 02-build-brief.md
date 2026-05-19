@@ -21,8 +21,8 @@ The user holds three UCITS ETFs initially (iShares IWDA, Vanguard VWCG, HSBC H4Z
 The new add-on must:
 - Be deployable to Home Assistant via its add-on Supervisor.
 - Connect to the existing Postgres LXC over the network.
-- Create and own a new schema named `investments_bi` on that Postgres instance.
-- Read (never write) from the `ghostfolio` schema.
+- Create and own a new database named `investments_bi` on that Postgres instance.
+- Read (never write) from the `ghostfolio` database.
 - Be exposed through HA Ingress with a sidebar entry titled "InvestmentsBI".
 
 ---
@@ -105,12 +105,9 @@ investmentsbi/
 
 ## Schema DDL
 
-Create schema and tables exactly as below. Schema name is **lowercase snake_case** (`investments_bi`) to avoid identifier-quoting friction.
+Create the tables below in the `investments_bi` database (tables live in the `public` schema). Database name is **lowercase snake_case** (`investments_bi`) to avoid identifier-quoting friction.
 
 ```sql
-create schema if not exists investments_bi;
-set search_path to investments_bi;
-
 create table product (
   isin              text primary key,
   ticker            text,
@@ -331,6 +328,7 @@ options:
   postgres_host: ""
   postgres_port: 5432
   postgres_db: "ghostfolio"
+  postgres_db_bi: "investments_bi"
   postgres_user_rw: ""
   postgres_user_ro: ""
   ghostfolio_account_id: ""
@@ -341,6 +339,7 @@ schema:
   postgres_host: str
   postgres_port: port
   postgres_db: str
+  postgres_db_bi: str
   postgres_user_rw: str
   postgres_user_ro: str
   ghostfolio_account_id: str?

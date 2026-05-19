@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_db: str = "ghostfolio"
+    postgres_db_bi: str = "investments_bi"
     postgres_user_rw: str = "reporter_rw"
     postgres_password_rw: str = ""
     postgres_user_ro: str = "reporter_ro"
@@ -60,7 +61,7 @@ class Settings(BaseSettings):
     def reporting_db_url(self) -> str:
         return (
             f"postgresql+psycopg2://{self.postgres_user_rw}:{self.postgres_password_rw}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db_bi}"
         )
 
     @property

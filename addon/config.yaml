@@ -12,6 +12,7 @@ options:
   postgres_host: ""
   postgres_port: 5432
   postgres_db: "ghostfolio"
+  postgres_db_bi: "investments_bi"
   postgres_user_rw: "reporter_rw"
   postgres_password_rw: ""
   postgres_user_ro: "reporter_ro"
@@ -24,6 +25,7 @@ schema:
   postgres_host: str
   postgres_port: port
   postgres_db: str
+  postgres_db_bi: str
   postgres_user_rw: str
   postgres_password_rw: password
   postgres_user_ro: str

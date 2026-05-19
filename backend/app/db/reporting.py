@@ -22,7 +22,7 @@ class Product(Base):
             "cadence IN ('daily','monthly','quarterly','static')",
             name="cadence_check",
         ),
-        {"schema": "investments_bi"},
+        {},
     )
 
     isin: Mapped[str] = mapped_column(Text, primary_key=True)
