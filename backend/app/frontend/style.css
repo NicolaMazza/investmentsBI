@@ -1,0 +1,59 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, sans-serif;
+  background: #0f172a;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+
+header {
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid #1e293b;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+}
+
+main {
+  padding: 2rem;
+}
+
+.status-card {
+  background: #1e293b;
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  max-width: 480px;
+}
+
+.status-card h2 {
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #94a3b8;
+  margin-bottom: 1rem;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #0f172a;
+  font-size: 0.9rem;
+}
+
+.badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-ok { background: #064e3b; color: #34d399; }
+.badge-error { background: #450a0a; color: #f87171; }
+.badge-unknown { background: #1e293b; color: #94a3b8; }
