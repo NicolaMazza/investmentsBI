@@ -1,0 +1,7 @@
+Fund Holdings as of,"17-May-2026",,,,,,,,,,,,,,,,,,
+Ticker,Name,Asset Class,Weight (%),Price,Shares,Market Value,Notional Value,Sector,ISIN,Exchange,Location,Currency,FX Rate,Accrual Date,Market Currency
+AAPL,"Apple Inc",Equity,4.88,213.32,"68,743,617","14,675,661,888.84","14,675,661,888.84",Information Technology,US0378331005,NASDAQ,United States,USD,1.00,,USD
+MSFT,"Microsoft Corp",Equity,4.42,415.03,"40,018,614","16,609,126,592.42","16,609,126,592.42",Information Technology,US5949181045,NASDAQ,United States,USD,1.00,,USD
+NVDA,"NVIDIA Corp",Equity,3.91,131.38,"111,497,044","14,652,085,983.72","14,652,085,983.72",Information Technology,US67066G1040,NASDAQ,United States,USD,1.00,,USD
+AMZN,"Amazon.com Inc",Equity,2.43,225.19,"40,489,654","9,116,854,720.26","9,116,854,720.26",Consumer Discretionary,US0231351067,NASDAQ,United States,USD,1.00,,USD
+GOOGL,"Alphabet Inc Class A",Equity,1.21,177.44,"25,566,218","4,534,451,339.92","4,534,451,339.92",Communication Services,US02079K3059,NASDAQ,United States,USD,1.00,,USD
