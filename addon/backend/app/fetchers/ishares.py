@@ -46,6 +46,12 @@ class ISharesFetcher(BaseFetcher):
         log.debug("iShares %s columns: %s", product.isin, df.columns.tolist())
 
         # UK iShares CSVs do not include an ISIN column — fall back to Ticker
+        # DESIGN DEBT (revisit in M5): using Ticker as constituent_isin means
+        # cross-product joins in the allocation aggregator will break if the
+        # same company appears under different tickers in different ETFs
+        # (e.g. class-A vs class-B shares, or ADR vs ordinary).  When a source
+        # that exposes constituent ISINs for IWDA/SWDA is found, update the
+        # fetcher and migration to rename/backfill the column.
         if "ISIN" in df.columns:
             id_col = "ISIN"
         elif "Ticker" in df.columns:
