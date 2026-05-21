@@ -93,5 +93,23 @@ class ISharesFetcher(BaseFetcher):
                 )
             )
 
+        # Deduplicate by constituent_isin — same ticker can appear on multiple
+        # exchanges (e.g. SAN on NYSE and Madrid). Sum the weights but keep
+        # metadata (country_listing, sector, currency etc.) from the
+        # highest-weight occurrence, which is the primary listing.
+        deduped: dict[str, NormalizedHolding] = {}
+        weight_totals: dict[str, float] = {}
+        for h in holdings:
+            key = h.constituent_isin
+            weight_totals[key] = weight_totals.get(key, 0.0) + h.weight_pct
+            if key not in deduped or h.weight_pct > deduped[key].weight_pct:
+                deduped[key] = h
+        for key, total in weight_totals.items():
+            deduped[key] = deduped[key].model_copy(update={"weight_pct": total})
+        holdings = list(deduped.values())
+
+        if len(holdings) < len(weight_totals):
+            log.warning("iShares %s: deduplicated %d duplicate ticker(s)",
+                        product.isin, len(weight_totals) - len(holdings))
         log.info("iShares %s: fetched %d holdings", product.isin, len(holdings))
         return holdings
