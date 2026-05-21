@@ -62,6 +62,44 @@ class ProductCompositionSnapshot(Base):
     shares: Mapped[Optional[float]] = mapped_column(Numeric(20, 4))
 
 
+class FxRate(Base):
+    """Daily EUR FX rates sourced from the ECB.
+
+    base_currency is always 'EUR'.  rate = how many quote_currency per 1 EUR
+    (ECB convention, e.g. 1 EUR = 1.12 USD → rate=1.12, quote_currency='USD').
+    To convert native amount to EUR: eur_value = native_amount / rate.
+    """
+    __tablename__ = "fx_rate"
+
+    as_of_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    base_currency: Mapped[str] = mapped_column(Text, primary_key=True)
+    quote_currency: Mapped[str] = mapped_column(Text, primary_key=True)
+    rate: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False)
+
+
+class PositionSnapshot(Base):
+    """Net position per account × symbol as of a given date.
+
+    Quantities are computed from Ghostfolio Orders (BUY − SELL).
+    Market values use the latest available price from Ghostfolio MarketData;
+    EUR conversion uses same-date (or nearest prior) fx_rate rows.
+    """
+    __tablename__ = "position_snapshot"
+
+    as_of_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    account_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    symbol_profile_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    isin: Mapped[Optional[str]] = mapped_column(Text)
+    symbol: Mapped[Optional[str]] = mapped_column(Text)
+    name: Mapped[Optional[str]] = mapped_column(Text)
+    currency: Mapped[Optional[str]] = mapped_column(Text)
+    quantity: Mapped[float] = mapped_column(Numeric(30, 8), nullable=False)
+    market_price_native: Mapped[Optional[float]] = mapped_column(Numeric(20, 4))
+    market_value_native: Mapped[Optional[float]] = mapped_column(Numeric(20, 2))
+    fx_rate_to_eur: Mapped[Optional[float]] = mapped_column(Numeric(18, 8))
+    market_value_eur: Mapped[Optional[float]] = mapped_column(Numeric(20, 2))
+
+
 class JobRun(Base):
     __tablename__ = "job_run"
     __table_args__ = (
