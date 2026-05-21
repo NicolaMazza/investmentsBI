@@ -50,12 +50,13 @@ class Settings(BaseSettings):
     def settings_customise_sources(
         cls,
         settings_cls: Type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        secrets_settings: PydanticBaseSettingsSource,
+        **kwargs: Any,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return init_settings, env_settings, HaOptionsSource(settings_cls)
+        return (
+            kwargs["init_settings"],
+            kwargs["env_settings"],
+            HaOptionsSource(settings_cls),
+        )
 
     @property
     def reporting_db_url(self) -> str:
