@@ -48,54 +48,55 @@ Do not deviate from these without first surfacing the question:
 
 ```
 investmentsbi/
-├── addon/
+├── repository.json              # HA add-on repository manifest
+├── addon/                       # HA build context (everything Docker needs is inside here)
 │   ├── config.yaml              # HA add-on manifest
 │   ├── Dockerfile               # python:3.12-slim base, no Node
 │   ├── run.sh                   # entrypoint: alembic upgrade head; uvicorn
-│   └── README.md                # HA add-on README (shown in HA UI)
-├── backend/
-│   ├── pyproject.toml
-│   ├── alembic.ini
-│   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   └── app/
-│       ├── main.py              # FastAPI app + static mount
-│       ├── config.py            # Pydantic settings from env vars
-│       ├── scheduler.py         # APScheduler bootstrap & job registration
-│       ├── logging_config.py
-│       ├── db/
-│       │   ├── __init__.py
-│       │   ├── reporting.py     # SQLAlchemy models for investments_bi
-│       │   ├── reporting_session.py
-│       │   ├── ghostfolio.py    # read-only adapter; minimal models for needed tables
-│       │   └── ghostfolio_session.py
-│       ├── fetchers/
-│       │   ├── __init__.py
-│       │   ├── base.py          # abstract base class + parser registry
-│       │   ├── ishares.py
-│       │   ├── vanguard.py
-│       │   ├── hsbc.py
-│       │   ├── self_snapshot.py # generates 100%-weight snapshot for single-asset products
-│       │   ├── ecb_fx.py
-│       │   └── market_cap.py    # yfinance enrichment
-│       ├── aggregator/
-│       │   ├── __init__.py
-│       │   ├── position_snapshot.py     # reads Ghostfolio → writes position_snapshot
-│       │   └── allocation.py            # computes portfolio_allocation_snapshot
-│       ├── api/
-│       │   ├── __init__.py
-│       │   ├── allocation.py
-│       │   ├── drill.py
-│       │   ├── timeseries.py
-│       │   ├── products.py
-│       │   ├── health.py
-│       │   └── admin.py
-│       └── frontend/                    # served as static files
-│           ├── index.html
-│           ├── app.js
-│           ├── style.css
-│           └── treemap.js
+│   ├── README.md                # HA add-on README (shown in HA UI)
+│   └── backend/
+│       ├── pyproject.toml
+│       ├── alembic.ini
+│       ├── alembic/
+│       │   ├── env.py
+│       │   └── versions/
+│       └── app/
+│           ├── main.py              # FastAPI app + static mount
+│           ├── config.py            # Pydantic settings from env vars
+│           ├── scheduler.py         # APScheduler bootstrap & job registration
+│           ├── logging_config.py
+│           ├── db/
+│           │   ├── __init__.py
+│           │   ├── reporting.py     # SQLAlchemy models for investments_bi
+│           │   ├── reporting_session.py
+│           │   ├── ghostfolio.py    # read-only adapter; minimal models for needed tables
+│           │   └── ghostfolio_session.py
+│           ├── fetchers/
+│           │   ├── __init__.py
+│           │   ├── base.py          # abstract base class + parser registry
+│           │   ├── ishares.py
+│           │   ├── vanguard.py
+│           │   ├── hsbc.py
+│           │   ├── self_snapshot.py # generates 100%-weight snapshot for single-asset products
+│           │   ├── ecb_fx.py
+│           │   └── market_cap.py    # yfinance enrichment
+│           ├── aggregator/
+│           │   ├── __init__.py
+│           │   ├── position_snapshot.py     # reads Ghostfolio → writes position_snapshot
+│           │   └── allocation.py            # computes portfolio_allocation_snapshot
+│           ├── api/
+│           │   ├── __init__.py
+│           │   ├── allocation.py
+│           │   ├── drill.py
+│           │   ├── timeseries.py
+│           │   ├── products.py
+│           │   ├── health.py
+│           │   └── admin.py
+│           └── frontend/                    # served as static files
+│               ├── index.html
+│               ├── app.js
+│               ├── style.css
+│               └── treemap.js
 └── docs/
     ├── design-and-architecture.md       # the design doc
     └── ghostfolio-schema-notes.md       # which Ghostfolio tables we read, pinned to a version
