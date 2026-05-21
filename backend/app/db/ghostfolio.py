@@ -1,4 +1,5 @@
-# Ghostfolio schema adapter — pinned to Ghostfolio 3.3.0
+# Ghostfolio database adapter — pinned to Ghostfolio 3.3.0
+# Ghostfolio tables live in the public schema of the ghostfolio database.
 # On Ghostfolio upgrades, verify these models against the live schema before upgrading.
 from __future__ import annotations
 

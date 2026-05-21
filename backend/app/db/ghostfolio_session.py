@@ -10,7 +10,6 @@ from app.config import settings
 engine = create_engine(
     settings.ghostfolio_db_url,
     pool_pre_ping=True,
-    connect_args={"options": "-c search_path=ghostfolio"},
 )
 
 SessionLocal: sessionmaker[Session] = sessionmaker(bind=engine, autocommit=False, autoflush=False)
