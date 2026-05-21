@@ -16,7 +16,7 @@ The user holds three UCITS ETFs initially (iShares IWDA, Vanguard VWCG, HSBC H4Z
 
 - **Host**: Proxmox VE on a mini-PC.
 - **Home Assistant OS** runs as a Proxmox VM. Tailscale add-on is already installed and exposes HA externally. Ghostfolio is already installed as an HA add-on.
-- **Postgres 14+** runs in a separate Proxmox LXC. Ghostfolio uses the schema named `ghostfolio` on this Postgres. The host IP, port, and credentials will be provided via the add-on's `options` and secrets.
+- **Postgres 14+** runs in a separate Proxmox LXC. Ghostfolio uses a database named `ghostfolio` (tables in the `public` schema) on this Postgres. The host IP, port, and credentials will be provided via the add-on's `options` and secrets.
 
 The new add-on must:
 - Be deployable to Home Assistant via its add-on Supervisor.
@@ -48,54 +48,55 @@ Do not deviate from these without first surfacing the question:
 
 ```
 investmentsbi/
-├── addon/
+├── repository.json              # HA add-on repository manifest
+├── addon/                       # HA build context (everything Docker needs is inside here)
 │   ├── config.yaml              # HA add-on manifest
 │   ├── Dockerfile               # python:3.12-slim base, no Node
 │   ├── run.sh                   # entrypoint: alembic upgrade head; uvicorn
-│   └── README.md                # HA add-on README (shown in HA UI)
-├── backend/
-│   ├── pyproject.toml
-│   ├── alembic.ini
-│   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   └── app/
-│       ├── main.py              # FastAPI app + static mount
-│       ├── config.py            # Pydantic settings from env vars
-│       ├── scheduler.py         # APScheduler bootstrap & job registration
-│       ├── logging_config.py
-│       ├── db/
-│       │   ├── __init__.py
-│       │   ├── reporting.py     # SQLAlchemy models for investments_bi
-│       │   ├── reporting_session.py
-│       │   ├── ghostfolio.py    # read-only adapter; minimal models for needed tables
-│       │   └── ghostfolio_session.py
-│       ├── fetchers/
-│       │   ├── __init__.py
-│       │   ├── base.py          # abstract base class + parser registry
-│       │   ├── ishares.py
-│       │   ├── vanguard.py
-│       │   ├── hsbc.py
-│       │   ├── self_snapshot.py # generates 100%-weight snapshot for single-asset products
-│       │   ├── ecb_fx.py
-│       │   └── market_cap.py    # yfinance enrichment
-│       ├── aggregator/
-│       │   ├── __init__.py
-│       │   ├── position_snapshot.py     # reads Ghostfolio → writes position_snapshot
-│       │   └── allocation.py            # computes portfolio_allocation_snapshot
-│       ├── api/
-│       │   ├── __init__.py
-│       │   ├── allocation.py
-│       │   ├── drill.py
-│       │   ├── timeseries.py
-│       │   ├── products.py
-│       │   ├── health.py
-│       │   └── admin.py
-│       └── frontend/                    # served as static files
-│           ├── index.html
-│           ├── app.js
-│           ├── style.css
-│           └── treemap.js
+│   ├── README.md                # HA add-on README (shown in HA UI)
+│   └── backend/
+│       ├── pyproject.toml
+│       ├── alembic.ini
+│       ├── alembic/
+│       │   ├── env.py
+│       │   └── versions/
+│       └── app/
+│           ├── main.py              # FastAPI app + static mount
+│           ├── config.py            # Pydantic settings from env vars
+│           ├── scheduler.py         # APScheduler bootstrap & job registration
+│           ├── logging_config.py
+│           ├── db/
+│           │   ├── __init__.py
+│           │   ├── reporting.py     # SQLAlchemy models for investments_bi
+│           │   ├── reporting_session.py
+│           │   ├── ghostfolio.py    # read-only adapter; minimal models for needed tables
+│           │   └── ghostfolio_session.py
+│           ├── fetchers/
+│           │   ├── __init__.py
+│           │   ├── base.py          # abstract base class + parser registry
+│           │   ├── ishares.py
+│           │   ├── vanguard.py
+│           │   ├── hsbc.py
+│           │   ├── self_snapshot.py # generates 100%-weight snapshot for single-asset products
+│           │   ├── ecb_fx.py
+│           │   └── market_cap.py    # yfinance enrichment
+│           ├── aggregator/
+│           │   ├── __init__.py
+│           │   ├── position_snapshot.py     # reads Ghostfolio → writes position_snapshot
+│           │   └── allocation.py            # computes portfolio_allocation_snapshot
+│           ├── api/
+│           │   ├── __init__.py
+│           │   ├── allocation.py
+│           │   ├── drill.py
+│           │   ├── timeseries.py
+│           │   ├── products.py
+│           │   ├── health.py
+│           │   └── admin.py
+│           └── frontend/                    # served as static files
+│               ├── index.html
+│               ├── app.js
+│               ├── style.css
+│               └── treemap.js
 └── docs/
     ├── design-and-architecture.md       # the design doc
     └── ghostfolio-schema-notes.md       # which Ghostfolio tables we read, pinned to a version
@@ -350,7 +351,7 @@ schema:
 
 Database passwords are read from HA secrets, not from `options`. Two database users:
 - `reporter_rw` — full grants on `investments_bi`
-- `reporter_ro` — `SELECT` on `ghostfolio` schema
+- `reporter_ro` — `SELECT` on `public` schema of the `ghostfolio` database
 
 Both are created manually on Postgres before first run; the add-on does not provision Postgres users.
 
@@ -361,7 +362,7 @@ Both are created manually on Postgres before first run; the add-on does not prov
 - **Type hints required everywhere**; mypy strict on `app/` (excluding migrations).
 - **Logging via stdlib `logging`** with a JSON formatter for production. `logging_config.py` is the single setup point.
 - **Errors**: fetchers raise on unrecoverable issues, return partial results with warnings on recoverable ones. The aggregator never raises out of a scheduled job — it logs and writes `failed`/`partial` to `job_run`.
-- **Tests**: pytest. Fixtures provide a clean `investments_bi` schema and a sample `ghostfolio` schema with fake data. Test the parsers with canned issuer files committed to the repo (one minimal sample per issuer).
+- **Tests**: pytest. Fixtures provide a clean `investments_bi` database and a sample `ghostfolio` database with fake data. Test the parsers with canned issuer files committed to the repo (one minimal sample per issuer).
 - **No print statements**, no commented-out code, no TODOs without an issue number.
 
 ---

@@ -119,7 +119,7 @@ Chart.js handles donut, bar, and line charts. The main allocation visualization 
 
 | Source | What it provides | Cadence | How |
 |---|---|---|---|
-| Ghostfolio Postgres (`ghostfolio` schema) | User's positions, transactions, valuations | Daily (read after Ghostfolio EOD) | Direct SQL via read-only user |
+| Ghostfolio Postgres (`ghostfolio` database, `public` schema) | User's positions, transactions, valuations | Daily (read after Ghostfolio EOD) | Direct SQL via read-only user |
 | iShares product pages | Full holdings as CSV per fund | Daily | Stable `.ajax` URL per fund |
 | Vanguard EU product pages | Full holdings as XLSX per fund | Monthly | Stable export URL per fund |
 | HSBC ETF product pages | Full holdings as XLSX per fund | Monthly | Per-fund URL |

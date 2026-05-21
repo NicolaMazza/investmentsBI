@@ -2,6 +2,8 @@
 
 Pinned to **Ghostfolio 3.3.0**.
 
+Ghostfolio tables live in the **`public` schema** of the `ghostfolio` database (not a schema named `ghostfolio`).
+
 ## Tables read by `aggregator/position_snapshot.py`
 
 | Table | Used for |
