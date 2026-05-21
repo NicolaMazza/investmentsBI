@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -e .
 
 RUN mkdir -p /data/cache
 
-COPY addon/run.sh /run.sh
+COPY run.sh /run.sh
 RUN chmod +x /run.sh
 
 EXPOSE 8000
