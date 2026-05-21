@@ -42,14 +42,24 @@ class ISharesFetcher(BaseFetcher):
 
         csv_body = "\n".join(lines[header_idx:])
         df = pd.read_csv(io.StringIO(csv_body), thousands=",")
+        df.columns = df.columns.str.strip()
+        log.debug("iShares %s columns: %s", product.isin, df.columns.tolist())
 
-        # Drop footer rows that have no ISIN
-        df = df.dropna(subset=["ISIN"])
-        df = df[df["ISIN"].str.strip() != ""]
+        # UK iShares CSVs do not include an ISIN column — fall back to Ticker
+        if "ISIN" in df.columns:
+            id_col = "ISIN"
+        elif "Ticker" in df.columns:
+            id_col = "Ticker"
+            log.warning("iShares %s: no ISIN column, using Ticker as constituent identifier", product.isin)
+        else:
+            raise ValueError(f"iShares CSV for {product.isin} has neither ISIN nor Ticker column")
+
+        df = df.dropna(subset=[id_col])
+        df = df[df[id_col].str.strip() != ""]
 
         holdings: list[NormalizedHolding] = []
         for _, row in df.iterrows():
-            isin = str(row.get("ISIN", "")).strip()
+            isin = str(row.get(id_col, "")).strip()
             if not isin:
                 continue
 
