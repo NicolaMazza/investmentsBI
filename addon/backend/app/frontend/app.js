@@ -204,10 +204,11 @@ async function render() {
   const { dimension, segment, date } = getState();
   try {
     const data = await fetchAllocation(dimension, date);
-    // Attach KPI fields from stub (real values come with portfolio summary endpoint)
-    data.funds        = data.rows.length;
-    data.look_through = null;
-    data.top_single   = null;
+    // funds / look_through / top_single are now real fields from the API;
+    // fall back gracefully if missing (old stub responses).
+    if (data.funds        == null) data.funds        = data.rows.length;
+    if (data.look_through == null) data.look_through = null;
+    if (data.top_single   == null) data.top_single   = null;
 
     renderHeader(data);
     renderKPIs(data);
