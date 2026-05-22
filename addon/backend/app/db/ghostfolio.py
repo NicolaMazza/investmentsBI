@@ -49,7 +49,7 @@ class Order(GhostfolioBase):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     accountId: Mapped[Optional[str]] = mapped_column(Text)
-    date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Numeric(65, 30), nullable=False)
     unitPrice: Mapped[Decimal] = mapped_column(Numeric(65, 30), nullable=False)
     fee: Mapped[Decimal] = mapped_column(Numeric(65, 30), nullable=False)
@@ -71,7 +71,7 @@ class MarketData(GhostfolioBase):
     """Historical prices — composite PK (date, symbol, dataSource)."""
     __tablename__ = "MarketData"
 
-    date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=False), primary_key=True)
     symbol: Mapped[str] = mapped_column(Text, primary_key=True)
     dataSource: Mapped[str] = mapped_column(Text, primary_key=True)
     marketPrice: Mapped[Decimal] = mapped_column(Numeric(65, 30), nullable=False)

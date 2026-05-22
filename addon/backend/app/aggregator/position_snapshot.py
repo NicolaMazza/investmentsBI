@@ -176,6 +176,11 @@ def build_position_snapshot(
 
     # ---- 1. Net quantities ------------------------------------------------
     order_rows = _query_orders(gf_session, cutoff, user_id_filter, account_id_filter)
+    log.info(
+        "position_snapshot %s: _query_orders returned %d rows "
+        "(user_id_filter=%r, account_id_filter=%r, cutoff=%s)",
+        as_of_date, len(order_rows), user_id_filter, account_id_filter, cutoff,
+    )
 
     meta: dict[tuple[str, str], dict] = {}   # (account_id, sp_id) -> info
     qty: dict[tuple[str, str], Decimal] = {}
