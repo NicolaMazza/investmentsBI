@@ -6,11 +6,11 @@
 
 const DIMENSIONS = [
   { key: 'sector',     label: 'Sector',     chartType: 'treemap', available: true  },
-  { key: 'company',    label: 'Company',    chartType: 'bar',     available: false },
-  { key: 'country',    label: 'Country',    chartType: 'treemap', available: false },
-  { key: 'currency',   label: 'Currency',   chartType: 'donut',   available: false },
+  { key: 'company',    label: 'Company',    chartType: 'treemap', available: true  },
+  { key: 'country',    label: 'Country',    chartType: 'treemap', available: true  },
+  { key: 'currency',   label: 'Currency',   chartType: 'donut',   available: true  },
   { key: 'market_cap', label: 'Market cap', chartType: 'bar',     available: false },
-  { key: 'product',    label: 'ETF',        chartType: 'bar',     available: false },
+  { key: 'product',    label: 'ETF',        chartType: 'treemap', available: true  },
 ];
 
 const JOBS = [
@@ -58,6 +58,14 @@ async function fetchAllocation(dimension, date) {
   return res.json();
 }
 
+async function fetchDrill(dimension, segment, date) {
+  const params = new URLSearchParams({ dimension, segment });
+  if (date) params.set('date', date);
+  const res = await fetch(`api/drill?${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function fetchHealth() {
   const res = await fetch('api/health');
   return res.json();
@@ -82,7 +90,7 @@ function renderKPIs(data) {
   document.getElementById('kpi-top').textContent   = data.top_single   ?? '—';
 }
 
-// ── Render: pivot pills (md-filter-chip) ─────────────────────────────────────
+// ── Render: pivot pills ───────────────────────────────────────────────────────
 
 function renderPivots(activeDim) {
   const chipset = document.getElementById('dimension-chips');
@@ -106,6 +114,50 @@ function renderPivots(activeDim) {
   }
 }
 
+// ── Render: donut chart ───────────────────────────────────────────────────────
+
+let _donutChart = null;
+
+function renderDonut(data, segment, onSelect) {
+  const canvas = document.getElementById('donut-canvas');
+  const labels  = data.rows.map(r => r.label);
+  const values  = data.rows.map(r => r.value_eur);
+  const colors  = data.rows.map((_, i) => TM_COLORS[i % TM_COLORS.length]);
+  const alphas  = data.rows.map(r => (segment && r.label !== segment) ? 0.35 : 1);
+  const bgs     = colors.map((c, i) => c + Math.round(alphas[i] * 255).toString(16).padStart(2, '0'));
+
+  if (_donutChart) { _donutChart.destroy(); _donutChart = null; }
+
+  _donutChart = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: bgs,
+        borderColor: 'transparent',
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      cutout: '60%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${fmtEUR(ctx.raw)}  (${fmtPct(ctx.raw / data.total_eur)})`,
+          },
+        },
+      },
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const lbl = labels[els[0].index];
+        onSelect(lbl === segment ? null : lbl);
+      },
+    },
+  });
+}
+
 // ── Render: main viz ──────────────────────────────────────────────────────────
 
 function renderViz(data, segment) {
@@ -119,7 +171,7 @@ function renderViz(data, segment) {
   if (dim.chartType === 'treemap') {
     svg.hidden    = false;
     canvas.hidden = true;
-    // Treemap expects {label, value, weight}; API returns value_eur
+    if (_donutChart) { _donutChart.destroy(); _donutChart = null; }
     const rows = data.rows.map(r => ({ ...r, value: r.value_eur }));
     renderTreemap(svg, rows, segment, item => {
       pushState({ segment: item.label === segment ? null : item.label });
@@ -127,13 +179,15 @@ function renderViz(data, segment) {
   } else if (dim.chartType === 'donut') {
     svg.hidden    = true;
     canvas.hidden = false;
-    // donut rendering for currency dimension (M5)
+    renderDonut(data, segment, lbl => {
+      pushState({ segment: lbl });
+    });
   }
 }
 
 // ── Render: drill panel ───────────────────────────────────────────────────────
 
-function renderDrill(data, segment) {
+async function renderDrill(data, segment) {
   const panel = document.getElementById('drill-panel');
   const row   = document.getElementById('main-row');
 
@@ -149,19 +203,48 @@ function renderDrill(data, segment) {
   panel.hidden = false;
   row.classList.remove('no-drill');
 
-  document.getElementById('drill-title').textContent =
-    `${item.label} · drill`;
-
+  document.getElementById('drill-title').textContent = `${item.label} · drill`;
   document.getElementById('drill-content').innerHTML = `
     <div class="drill-value">${fmtPct(item.weight)}</div>
     <div class="drill-meta">${fmtEUR(item.value_eur)}</div>
+    <div class="drill-loading">Loading details…</div>`;
+
+  try {
+    const { dimension, date } = getState();
+    const drill = await fetchDrill(dimension, segment, date);
+    document.getElementById('drill-content').innerHTML = _renderDrillContent(drill);
+  } catch (err) {
+    document.getElementById('drill-content').querySelector('.drill-loading')
+      ?.remove();
+    log.warn?.('drill fetch failed:', err);
+  }
+}
+
+function _renderDrillContent(drill) {
+  const heldRows = drill.held_via.map(h => `
+    <div class="drill-row">
+      <span>${h.name}</span>
+      <span class="secondary">${fmtEUR(h.contribution_eur)}</span>
+    </div>`).join('');
+
+  const constituentRows = drill.constituents.slice(0, 10).map(c => `
+    <div class="drill-row">
+      <span>${c.name}</span>
+      <span class="secondary">${fmtPct(c.weight_in_segment)}</span>
+    </div>`).join('');
+
+  return `
+    <div class="drill-value">${fmtPct(drill.weight)}</div>
+    <div class="drill-meta">${fmtEUR(drill.value_eur)}</div>
 
     <div class="drill-subhead">Held via</div>
-    <div class="drill-row sep"><span>—</span><span class="secondary">available after ETF join</span></div>
+    ${heldRows || '<div class="drill-row"><span class="secondary">—</span></div>'}
 
     <div class="drill-subhead">Top companies</div>
-    <div class="drill-row"><span>—</span><span class="secondary">available after ETF join</span></div>
-  `;
+    ${constituentRows || '<div class="drill-row"><span class="secondary">—</span></div>'}
+    ${drill.constituents.length > 10
+      ? `<div class="drill-row"><span class="secondary muted">+${drill.constituents.length - 10} more</span></div>`
+      : ''}`;
 }
 
 // ── Render: data table ────────────────────────────────────────────────────────
@@ -185,7 +268,6 @@ function renderTable(data) {
       <td class="muted">—</td>
     </tr>`).join('');
 
-  // Row click → drill
   document.querySelectorAll('#table-body tr').forEach(tr => {
     tr.addEventListener('click', () => {
       const seg = tr.dataset.segment;
@@ -206,8 +288,6 @@ async function render() {
   const { dimension, segment, date } = getState();
   try {
     const data = await fetchAllocation(dimension, date);
-    // funds / look_through / top_single are now real fields from the API;
-    // fall back gracefully if missing (old stub responses).
     if (data.funds        == null) data.funds        = data.rows.length;
     if (data.look_through == null) data.look_through = null;
     if (data.top_single   == null) data.top_single   = null;
@@ -216,7 +296,7 @@ async function render() {
     renderKPIs(data);
     renderPivots(dimension);
     renderViz(data, segment);
-    renderDrill(data, segment);
+    await renderDrill(data, segment);
     renderTable(data);
     renderStubBanner(data);
   } catch (err) {
@@ -283,5 +363,5 @@ document.getElementById('drill-close').addEventListener('click', () => {
 
 window.addEventListener('hashchange', render);
 
-// No external custom-element dependencies — render immediately on DOMContentLoaded.
+// No external custom-element dependencies — render immediately.
 render();
