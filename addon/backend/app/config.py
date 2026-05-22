@@ -41,12 +41,10 @@ class Settings(BaseSettings):
     postgres_password_rw: str = ""
     postgres_user_ro: str = "reporter_ro"
     postgres_password_ro: str = ""
-    # ghostfolio_account_id holds the Ghostfolio userId for the add-on owner.
-    # It filters Order.userId so only the owner's portfolio is aggregated.
-    # Per-account filtering (brokerage account level) is not yet implemented;
-    # it will be added once the HA Supervisor config-caching issue is resolved
-    # and a separate field can be surfaced in the UI.
-    ghostfolio_account_id: str = ""
+    # ghostfolio_user_id: the Ghostfolio userId (from the User table) for the
+    # add-on owner. Filters Order.userId so only the owner's portfolio is
+    # aggregated. Leave empty to aggregate all users (single-user installs).
+    ghostfolio_user_id: str = ""
     base_currency: str = "EUR"
     snapshot_local_time: str = "00:00"
     log_level: str = "INFO"
@@ -54,7 +52,7 @@ class Settings(BaseSettings):
     @property
     def ghostfolio_owner_id_or_none(self) -> str | None:
         """Returns the Ghostfolio userId to filter orders on, or None for all users."""
-        return self.ghostfolio_account_id or None
+        return self.ghostfolio_user_id or None
 
     @classmethod
     def settings_customise_sources(
