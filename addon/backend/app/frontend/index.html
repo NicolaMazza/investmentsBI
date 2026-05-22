@@ -1,18 +1,91 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>InvestmentsBI</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Chart.js v4 — only external dependency -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="app">
-    <header>
-      <h1>InvestmentsBI</h1>
-    </header>
-    <main id="status"></main>
+<div class="dashboard">
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <div class="header">
+    <div>
+      <div class="header-title">Portfolio look-through</div>
+      <div class="header-subtitle" id="header-subtitle">Loading…</div>
+    </div>
+    <div class="header-right">
+      <div class="date-range" id="date-range" hidden>
+        <span data-range="today" class="active">Today</span>
+        <span data-range="1m">1M</span>
+        <span data-range="ytd">YTD</span>
+      </div>
+      <button class="icon-btn" id="admin-toggle" title="Admin">⚙</button>
+    </div>
   </div>
-  <script src="app.js"></script>
+
+  <!-- ── Admin panel (hidden by default) ─────────────────────────────── -->
+  <div id="admin-panel" class="admin-panel" hidden>
+    <div class="admin-inner" id="admin-inner">Loading…</div>
+  </div>
+
+  <!-- ── KPI row ─────────────────────────────────────────────────────── -->
+  <div class="kpi-row" id="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Total value</div><div class="kpi-value" id="kpi-total">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Funds</div><div class="kpi-value" id="kpi-funds">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Look-through</div><div class="kpi-value" id="kpi-lookt">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Top single</div><div class="kpi-value" id="kpi-top">—</div></div>
+  </div>
+
+  <!-- ── Stub banner ─────────────────────────────────────────────────── -->
+  <div id="stub-banner" class="stub-banner" hidden>
+    Showing representative data — run the <strong>Position snapshot</strong> job to load real values.
+  </div>
+
+  <!-- ── Pivot pills ─────────────────────────────────────────────────── -->
+  <div class="pivots">
+    <span class="pivots-label">Pivot by</span>
+    <div class="chip-set" id="dimension-chips"></div>
+  </div>
+
+  <!-- ── Main row: viz + drill ───────────────────────────────────────── -->
+  <div class="main-row" id="main-row">
+    <div class="panel" id="viz-panel">
+      <div class="panel-title" id="viz-title">Allocation by sector</div>
+      <svg id="treemap-svg" viewBox="0 0 560 280" width="100%"
+           role="img" aria-label="Allocation treemap" style="display:block;"></svg>
+      <canvas id="donut-canvas" hidden></canvas>
+      <div id="bar-container" hidden></div>
+    </div>
+    <div class="panel drill" id="drill-panel" hidden>
+      <div class="drill-header">
+        <div class="panel-title" id="drill-title" style="margin-bottom:0;"></div>
+        <span class="drill-close" id="drill-close">×</span>
+      </div>
+      <div id="drill-content"></div>
+    </div>
+  </div>
+
+  <!-- ── Drift chart placeholder ─────────────────────────────────────── -->
+  <div class="panel" id="drift-panel" style="margin-bottom:20px;">
+    <div class="panel-title">Allocation drift</div>
+    <div class="drift-placeholder">Historical drift chart — available once daily snapshots accumulate.</div>
+  </div>
+
+  <!-- ── Data table ──────────────────────────────────────────────────── -->
+  <div class="table-wrap">
+    <table id="data-table">
+      <thead><tr id="table-head"></tr></thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+</div>
+<script src="treemap.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
