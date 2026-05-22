@@ -71,8 +71,8 @@ def run() -> None:
                 as_of_date=as_of_date,
                 gf_session=gf_session,
                 rep_session=rep_session2,
-                user_id_filter=settings.ghostfolio_user_id,
-                account_id_filter=settings.ghostfolio_account_id,
+                user_id_filter=settings.ghostfolio_user_id_or_none,
+                account_id_filter=settings.ghostfolio_account_id_or_none,
             )
         finally:
             gf_session.close()

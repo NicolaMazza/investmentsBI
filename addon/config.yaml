@@ -31,8 +31,8 @@ schema:
   postgres_password_rw: password
   postgres_user_ro: str
   postgres_password_ro: password
-  ghostfolio_user_id: str?
-  ghostfolio_account_id: str?
+  ghostfolio_user_id: str
+  ghostfolio_account_id: str
   base_currency: str
   snapshot_local_time: str
   log_level: "list(DEBUG|INFO|WARNING|ERROR)"

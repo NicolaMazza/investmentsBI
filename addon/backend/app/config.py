@@ -41,8 +41,16 @@ class Settings(BaseSettings):
     postgres_password_rw: str = ""
     postgres_user_ro: str = "reporter_ro"
     postgres_password_ro: str = ""
-    ghostfolio_user_id: str | None = None
-    ghostfolio_account_id: str | None = None
+    ghostfolio_user_id: str = ""
+    ghostfolio_account_id: str = ""
+
+    @property
+    def ghostfolio_user_id_or_none(self) -> str | None:
+        return self.ghostfolio_user_id or None
+
+    @property
+    def ghostfolio_account_id_or_none(self) -> str | None:
+        return self.ghostfolio_account_id or None
     base_currency: str = "EUR"
     snapshot_local_time: str = "00:00"
     log_level: str = "INFO"
