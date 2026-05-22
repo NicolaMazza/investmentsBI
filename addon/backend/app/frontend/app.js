@@ -219,6 +219,10 @@ async function render() {
     renderStubBanner(data);
   } catch (err) {
     console.error('Render failed:', err);
+    const sub = document.getElementById('header-subtitle');
+    if (sub && sub.textContent === 'Loading…') {
+      sub.textContent = `Error: ${err.message} — check add-on log`;
+    }
   }
 }
 
@@ -279,6 +283,13 @@ window.addEventListener('hashchange', render);
 
 // Wait for Material Web custom elements before first render so that
 // md-filter-chip and md-chip-set are fully registered.
-customElements.whenDefined('md-filter-chip')
-  .then(render)
-  .catch(render); // fall back immediately if MWC fails to load
+// Safety net: also render after 2 s in case the CDN never delivers MWC
+// (whenDefined never rejects — it just hangs if the element is never defined).
+let _rendered = false;
+function _onceRender() {
+  if (_rendered) return;
+  _rendered = true;
+  render();
+}
+customElements.whenDefined('md-filter-chip').then(_onceRender).catch(_onceRender);
+setTimeout(_onceRender, 2000);
