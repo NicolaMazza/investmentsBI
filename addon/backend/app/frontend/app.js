@@ -117,7 +117,9 @@ function renderViz(data, segment) {
   if (dim.chartType === 'treemap') {
     svg.hidden    = false;
     canvas.hidden = true;
-    renderTreemap(svg, data.rows, segment, item => {
+    // Treemap expects {label, value, weight}; API returns value_eur
+    const rows = data.rows.map(r => ({ ...r, value: r.value_eur }));
+    renderTreemap(svg, rows, segment, item => {
       pushState({ segment: item.label === segment ? null : item.label });
     });
   } else if (dim.chartType === 'donut') {
@@ -274,4 +276,8 @@ document.getElementById('drill-close').addEventListener('click', () => {
 
 window.addEventListener('hashchange', render);
 
-render();
+// Wait for Material Web custom elements before first render so that
+// md-filter-chip and md-chip-set are fully registered.
+customElements.whenDefined('md-filter-chip')
+  .then(render)
+  .catch(render); // fall back immediately if MWC fails to load
