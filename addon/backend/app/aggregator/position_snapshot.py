@@ -20,7 +20,8 @@ import logging
 from decimal import Decimal
 from typing import TypedDict
 
-from sqlalchemy import func, tuple_
+from sqlalchemy import cast, func, tuple_
+from sqlalchemy import Text as SAText
 from sqlalchemy.orm import Session
 
 from app.db.ghostfolio import MarketData, Order, SymbolProfile
@@ -58,7 +59,7 @@ def _query_orders(
         gf_session.query(Order, SymbolProfile)
         .join(SymbolProfile, Order.symbolProfileId == SymbolProfile.id)
         .filter(Order.date < cutoff)
-        .filter(Order.type.in_(["BUY", "SELL"]))
+        .filter(cast(Order.type, SAText).in_(["BUY", "SELL"]))
     )
     if account_id_filter:
         q = q.filter(Order.accountId == account_id_filter)
@@ -68,7 +69,7 @@ def _query_orders(
 def _query_latest_prices(
     gf_session: Session,
     symbol_source_pairs: set[tuple[str, str]],
-    cutoff: datetime.datetime,
+    cutoff: datetime.datetime,  # must be timezone-naive (MarketData.date is TIMESTAMP)
 ) -> dict[tuple[str, str], float]:
     """Return latest marketPrice per (symbol, dataSource) pair up to cutoff."""
     if not symbol_source_pairs:
@@ -162,10 +163,10 @@ def build_position_snapshot(
     rep_session      : session on the investments_bi database (for FX rates)
     account_id_filter: if set, only include orders from this Ghostfolio account
     """
+    # date column is "timestamp without time zone" — keep cutoff naive
     cutoff = datetime.datetime.combine(
         as_of_date + datetime.timedelta(days=1),
         datetime.time.min,
-        tzinfo=datetime.timezone.utc,
     )
 
     # ---- 1. Net quantities ------------------------------------------------
