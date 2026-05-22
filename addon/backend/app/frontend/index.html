@@ -1,24 +1,22 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>InvestmentsBI</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css">
 
   <!-- Material Web Components (M3) -->
   <script type="importmap">
   {
-    "imports": {
-      "@material/web/": "https://esm.run/@material/web/"
-    }
+    "imports": { "@material/web/": "https://esm.run/@material/web/" }
   }
   </script>
   <script type="module">
-    import '@material/web/tabs/tabs.js';
-    import '@material/web/tabs/primary-tab.js';
     import '@material/web/chips/chip-set.js';
     import '@material/web/chips/filter-chip.js';
+    import '@material/web/button/filled-tonal-button.js';
+    import '@material/web/iconbutton/icon-button.js';
     import '@material/web/progress/circular-progress.js';
   </script>
 
@@ -26,51 +24,82 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <div id="app">
+<div class="dashboard">
 
-    <!-- ── Header ───────────────────────────────────────────────── -->
-    <header class="app-header">
-      <span class="app-title">InvestmentsBI</span>
-      <md-tabs id="main-tabs">
-        <md-primary-tab id="tab-portfolio">Portfolio</md-primary-tab>
-        <md-primary-tab id="tab-admin">Admin</md-primary-tab>
-      </md-tabs>
-    </header>
-
-    <!-- ── Portfolio view ───────────────────────────────────────── -->
-    <main id="view-portfolio" class="view">
-
-      <div class="toolbar">
-        <md-chip-set id="dimension-chips">
-          <md-filter-chip label="Sector"       data-dim="sector"       selected></md-filter-chip>
-          <md-filter-chip label="Country"      data-dim="country"      disabled></md-filter-chip>
-          <md-filter-chip label="Currency"     data-dim="currency"     disabled></md-filter-chip>
-          <md-filter-chip label="Asset class"  data-dim="asset_class"  disabled></md-filter-chip>
-        </md-chip-set>
-        <span class="as-of-label">As of <strong id="as-of-date">—</strong></span>
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <div class="header">
+    <div>
+      <div class="header-title">Portfolio look-through</div>
+      <div class="header-subtitle" id="header-subtitle">Loading…</div>
+    </div>
+    <div class="header-right">
+      <div class="date-range" id="date-range" hidden>
+        <span data-range="today" class="active">Today</span>
+        <span data-range="1m">1M</span>
+        <span data-range="ytd">YTD</span>
       </div>
-
-      <div id="stub-banner" class="stub-banner" hidden>
-        Showing representative data — run the Position snapshot job to load real values.
-      </div>
-
-      <div class="chart-layout">
-        <div class="chart-wrap">
-          <canvas id="alloc-chart"></canvas>
-          <div id="chart-loading" class="chart-loading">
-            <md-circular-progress indeterminate></md-circular-progress>
-          </div>
-        </div>
-        <table id="alloc-legend" class="alloc-legend"></table>
-      </div>
-    </main>
-
-    <!-- ── Admin view ───────────────────────────────────────────── -->
-    <main id="view-admin" class="view" hidden>
-      <div id="admin-content"></div>
-    </main>
-
+      <md-icon-button id="admin-toggle" title="Admin">⚙</md-icon-button>
+    </div>
   </div>
-  <script src="app.js"></script>
+
+  <!-- ── Admin panel (hidden by default) ─────────────────────────────── -->
+  <div id="admin-panel" class="admin-panel" hidden>
+    <div class="admin-inner" id="admin-inner">Loading…</div>
+  </div>
+
+  <!-- ── KPI row ─────────────────────────────────────────────────────── -->
+  <div class="kpi-row" id="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">Total value</div><div class="kpi-value" id="kpi-total">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Funds</div><div class="kpi-value" id="kpi-funds">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Look-through</div><div class="kpi-value" id="kpi-lookt">—</div></div>
+    <div class="kpi-card"><div class="kpi-label">Top single</div><div class="kpi-value" id="kpi-top">—</div></div>
+  </div>
+
+  <!-- ── Stub banner ─────────────────────────────────────────────────── -->
+  <div id="stub-banner" class="stub-banner" hidden>
+    Showing representative data — run the <strong>Position snapshot</strong> job to load real values.
+  </div>
+
+  <!-- ── Pivot pills ─────────────────────────────────────────────────── -->
+  <div class="pivots">
+    <span class="pivots-label">Pivot by</span>
+    <md-chip-set id="dimension-chips"></md-chip-set>
+  </div>
+
+  <!-- ── Main row: viz + drill ───────────────────────────────────────── -->
+  <div class="main-row" id="main-row">
+    <div class="panel" id="viz-panel">
+      <div class="panel-title" id="viz-title">Allocation by sector</div>
+      <svg id="treemap-svg" viewBox="0 0 560 280" width="100%"
+           role="img" aria-label="Allocation treemap" style="display:block;"></svg>
+      <canvas id="donut-canvas" hidden></canvas>
+      <div id="bar-container" hidden></div>
+    </div>
+    <div class="panel drill" id="drill-panel" hidden>
+      <div class="drill-header">
+        <div class="panel-title" id="drill-title" style="margin-bottom:0;"></div>
+        <span class="drill-close" id="drill-close">×</span>
+      </div>
+      <div id="drill-content"></div>
+    </div>
+  </div>
+
+  <!-- ── Drift chart placeholder ─────────────────────────────────────── -->
+  <div class="panel" id="drift-panel" style="margin-bottom:20px;">
+    <div class="panel-title">Allocation drift</div>
+    <div class="drift-placeholder">Historical drift chart — available once daily snapshots accumulate.</div>
+  </div>
+
+  <!-- ── Data table ──────────────────────────────────────────────────── -->
+  <div class="table-wrap">
+    <table id="data-table">
+      <thead><tr id="table-head"></tr></thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+
+</div>
+<script src="treemap.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

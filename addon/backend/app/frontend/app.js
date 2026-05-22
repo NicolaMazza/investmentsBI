@@ -1,239 +1,277 @@
-// ── Constants ────────────────────────────────────────────────────────────────
+// InvestmentsBI — dashboard app
+// State lives in the URL hash: #dimension=sector&segment=Technology&date=2026-05-22
+// On every hash change, the full render pipeline reruns.
+
+// ── Dimensions ───────────────────────────────────────────────────────────────
+
+const DIMENSIONS = [
+  { key: 'sector',     label: 'Sector',     chartType: 'treemap', available: true  },
+  { key: 'company',    label: 'Company',    chartType: 'bar',     available: false },
+  { key: 'country',    label: 'Country',    chartType: 'treemap', available: false },
+  { key: 'currency',   label: 'Currency',   chartType: 'donut',   available: false },
+  { key: 'market_cap', label: 'Market cap', chartType: 'bar',     available: false },
+  { key: 'product',    label: 'ETF',        chartType: 'bar',     available: false },
+];
 
 const JOBS = [
   { key: 'ishares_holdings',  label: 'iShares holdings' },
-  { key: 'position_snapshot', label: 'Position snapshot (ECB FX + Ghostfolio)' },
-];
-
-// M3-era colour palette — works well on dark backgrounds
-const PALETTE = [
-  '#4FC3F7', // sky blue
-  '#81C784', // sage green
-  '#FF8A65', // coral
-  '#B39DDB', // lavender
-  '#F48FB1', // rose
-  '#4DD0E1', // teal
-  '#A5D6A7', // mint
-  '#FFD54F', // gold
-  '#FFCC80', // peach
-  '#90CAF9', // periwinkle
-  '#EF9A9A', // blush
-  '#B0BEC5', // silver
+  { key: 'position_snapshot', label: 'Position snapshot' },
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-let allocChart = null;
-let activeDimension = 'sector';
+function getState() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  return {
+    dimension: p.get('dimension') || 'sector',
+    segment:   p.get('segment')   || null,
+    date:      p.get('date')      || null,
+  };
+}
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+function pushState(updates) {
+  const s = { ...getState(), ...updates };
+  const p = new URLSearchParams({ dimension: s.dimension });
+  if (s.segment) p.set('segment', s.segment);
+  if (s.date)    p.set('date',    s.date);
+  location.hash = p.toString();
+}
 
-function formatEUR(value) {
+// ── Formatting ────────────────────────────────────────────────────────────────
+
+function fmtEUR(v) {
+  if (v == null) return '—';
   return new Intl.NumberFormat('en-EU', {
     style: 'currency', currency: 'EUR', maximumFractionDigits: 0,
-  }).format(value);
+  }).format(v);
 }
 
-function formatPct(weight) {
-  return (weight * 100).toFixed(1) + '%';
+function fmtPct(w) { return (w * 100).toFixed(1) + '%'; }
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+
+async function fetchAllocation(dimension, date) {
+  const params = new URLSearchParams({ dimension });
+  if (date) params.set('date', date);
+  const res = await fetch(`api/allocation?${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
-// ── Center-text plugin for Chart.js donut ─────────────────────────────────────
+async function fetchHealth() {
+  const res = await fetch('api/health');
+  return res.json();
+}
 
-const centerTextPlugin = {
-  id: 'centerText',
-  afterDraw(chart) {
-    if (!chart.data._total) return;
-    const { ctx, chartArea: { left, top, width, height } } = chart;
-    const cx = left + width / 2;
-    const cy = top + height / 2;
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.font = '600 1.4rem system-ui, sans-serif';
-    ctx.fillStyle = '#e2e8f0';
-    ctx.fillText(formatEUR(chart.data._total), cx, cy - 10);
-    ctx.font = '0.72rem system-ui, sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText('Portfolio value', cx, cy + 14);
-    ctx.restore();
-  },
-};
-Chart.register(centerTextPlugin);
+// ── Render: header ────────────────────────────────────────────────────────────
 
-// ── Allocation chart ─────────────────────────────────────────────────────────
+function renderHeader(data) {
+  const sub = document.getElementById('header-subtitle');
+  sub.textContent = data.as_of_date
+    ? `As of ${data.as_of_date} · base EUR`
+    : 'No data yet';
+  document.getElementById('date-range').hidden = false;
+}
 
-async function loadAllocation(dimension = 'sector') {
-  const loading = document.getElementById('chart-loading');
-  loading.hidden = false;
+// ── Render: KPIs ─────────────────────────────────────────────────────────────
 
-  try {
-    const res = await fetch(`api/allocation?dimension=${dimension}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    renderAllocation(data);
-  } catch (err) {
-    loading.hidden = true;
-    console.error('Allocation fetch failed:', err);
+function renderKPIs(data) {
+  document.getElementById('kpi-total').textContent = fmtEUR(data.total_eur);
+  document.getElementById('kpi-funds').textContent = data.funds ?? '—';
+  document.getElementById('kpi-lookt').textContent = data.look_through ?? '—';
+  document.getElementById('kpi-top').textContent   = data.top_single   ?? '—';
+}
+
+// ── Render: pivot pills (md-filter-chip) ─────────────────────────────────────
+
+function renderPivots(activeDim) {
+  const chipset = document.getElementById('dimension-chips');
+  chipset.innerHTML = '';
+  for (const dim of DIMENSIONS) {
+    const chip = document.createElement('md-filter-chip');
+    chip.setAttribute('label', dim.label);
+    chip.dataset.dim = dim.key;
+    if (dim.key === activeDim) chip.setAttribute('selected', '');
+    if (!dim.available)        chip.setAttribute('disabled', '');
+    if (dim.available) {
+      chip.addEventListener('click', () => {
+        if (dim.key !== getState().dimension) {
+          pushState({ dimension: dim.key, segment: null });
+        }
+      });
+    }
+    chipset.appendChild(chip);
   }
 }
 
-function renderAllocation(data) {
-  document.getElementById('chart-loading').hidden = true;
-  document.getElementById('as-of-date').textContent = data.as_of_date ?? '—';
+// ── Render: main viz ──────────────────────────────────────────────────────────
 
-  const banner = document.getElementById('stub-banner');
-  banner.hidden = !data.stub;
+function renderViz(data, segment) {
+  const dim = DIMENSIONS.find(d => d.key === data.dimension) || DIMENSIONS[0];
+  document.getElementById('viz-title').textContent =
+    `Allocation by ${dim.label.toLowerCase()}`;
 
-  const labels  = data.rows.map(r => r.label);
-  const values  = data.rows.map(r => r.value_eur);
-  const colors  = data.rows.map((_, i) => PALETTE[i % PALETTE.length]);
+  const svg    = document.getElementById('treemap-svg');
+  const canvas = document.getElementById('donut-canvas');
 
-  // ── Chart ──────────────────────────────────────────────────────────────────
-  const ctx = document.getElementById('alloc-chart').getContext('2d');
-
-  if (allocChart) allocChart.destroy();
-
-  allocChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderColor: '#0f172a',
-        borderWidth: 2,
-        hoverBorderWidth: 0,
-      }],
-      _total: data.total_eur,
-    },
-    options: {
-      cutout: '65%',
-      animation: { duration: 600, easing: 'easeInOutQuart' },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              const row = data.rows[ctx.dataIndex];
-              return ` ${formatPct(row.weight)}  ${formatEUR(row.value_eur)}`;
-            },
-          },
-          backgroundColor: '#1e293b',
-          borderColor: '#334155',
-          borderWidth: 1,
-          titleColor: '#e2e8f0',
-          bodyColor: '#94a3b8',
-          padding: 12,
-        },
-      },
-    },
-  });
-
-  // ── Legend table ───────────────────────────────────────────────────────────
-  const legend = document.getElementById('alloc-legend');
-  legend.innerHTML = `
-    <thead>
-      <tr>
-        <th></th>
-        <th class="col-label">Sector</th>
-        <th class="col-num">Weight</th>
-        <th class="col-num">Value (EUR)</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${data.rows.map((row, i) => `
-        <tr>
-          <td><span class="dot" style="background:${colors[i]}"></span></td>
-          <td class="col-label">${row.label}</td>
-          <td class="col-num">${formatPct(row.weight)}</td>
-          <td class="col-num">${formatEUR(row.value_eur)}</td>
-        </tr>`).join('')}
-    </tbody>`;
+  if (dim.chartType === 'treemap') {
+    svg.hidden    = false;
+    canvas.hidden = true;
+    renderTreemap(svg, data.rows, segment, item => {
+      pushState({ segment: item.label === segment ? null : item.label });
+    });
+  } else if (dim.chartType === 'donut') {
+    svg.hidden    = true;
+    canvas.hidden = false;
+    // donut rendering for currency dimension (M5)
+  }
 }
 
-// ── Admin view ───────────────────────────────────────────────────────────────
+// ── Render: drill panel ───────────────────────────────────────────────────────
 
-async function loadAdmin() {
-  const el = document.getElementById('admin-content');
+function renderDrill(data, segment) {
+  const panel = document.getElementById('drill-panel');
+  const row   = document.getElementById('main-row');
+
+  if (!segment) {
+    panel.hidden = true;
+    row.classList.add('no-drill');
+    return;
+  }
+
+  const item = data.rows.find(r => r.label === segment);
+  if (!item) { panel.hidden = true; return; }
+
+  panel.hidden = false;
+  row.classList.remove('no-drill');
+
+  document.getElementById('drill-title').textContent =
+    `${item.label} · drill`;
+
+  document.getElementById('drill-content').innerHTML = `
+    <div class="drill-value">${fmtPct(item.weight)}</div>
+    <div class="drill-meta">${fmtEUR(item.value_eur)}</div>
+
+    <div class="drill-subhead">Held via</div>
+    <div class="drill-row sep"><span>—</span><span class="secondary">available after ETF join</span></div>
+
+    <div class="drill-subhead">Top companies</div>
+    <div class="drill-row"><span>—</span><span class="secondary">available after ETF join</span></div>
+  `;
+}
+
+// ── Render: data table ────────────────────────────────────────────────────────
+
+function renderTable(data) {
+  const dim = DIMENSIONS.find(d => d.key === data.dimension) || DIMENSIONS[0];
+
+  document.getElementById('table-head').innerHTML = `
+    <th>${dim.label}</th>
+    <th>Value EUR</th>
+    <th>Portfolio %</th>
+    <th>Δ 30d</th>
+    <th>Holdings</th>`;
+
+  document.getElementById('table-body').innerHTML = data.rows.map(row => `
+    <tr data-segment="${row.label}">
+      <td>${row.label}</td>
+      <td>${fmtEUR(row.value_eur)}</td>
+      <td>${fmtPct(row.weight)}</td>
+      <td class="muted">—</td>
+      <td class="muted">—</td>
+    </tr>`).join('');
+
+  // Row click → drill
+  document.querySelectorAll('#table-body tr').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const seg = tr.dataset.segment;
+      pushState({ segment: seg === getState().segment ? null : seg });
+    });
+  });
+}
+
+// ── Render: stub banner ───────────────────────────────────────────────────────
+
+function renderStubBanner(data) {
+  document.getElementById('stub-banner').hidden = !data.stub;
+}
+
+// ── Full render pipeline ──────────────────────────────────────────────────────
+
+async function render() {
+  const { dimension, segment, date } = getState();
   try {
-    const res = await fetch('api/health');
-    const data = await res.json();
+    const data = await fetchAllocation(dimension, date);
+    // Attach KPI fields from stub (real values come with portfolio summary endpoint)
+    data.funds        = data.rows.length;
+    data.look_through = null;
+    data.top_single   = null;
+
+    renderHeader(data);
+    renderKPIs(data);
+    renderPivots(dimension);
+    renderViz(data, segment);
+    renderDrill(data, segment);
+    renderTable(data);
+    renderStubBanner(data);
+  } catch (err) {
+    console.error('Render failed:', err);
+  }
+}
+
+// ── Admin panel ───────────────────────────────────────────────────────────────
+
+async function renderAdmin() {
+  const el = document.getElementById('admin-inner');
+  try {
+    const health = await fetchHealth();
     el.innerHTML = `
-      <div class="status-card">
-        <h2>System status</h2>
-        ${Object.entries(data).map(([k, v]) => `
-          <div class="status-row">
+      <div class="admin-section">
+        <h3>System status</h3>
+        ${Object.entries(health).map(([k, v]) => `
+          <div class="admin-row">
             <span>${k}</span>
-            <span class="badge ${v === 'ok' || v === true ? 'badge-ok' : v === 'error' || v === false ? 'badge-error' : 'badge-unknown'}">
-              ${v}
-            </span>
+            <span class="badge ${v === 'ok' || v === true ? 'badge-ok' : v === 'error' || v === false ? 'badge-error' : 'badge-unknown'}">${v}</span>
           </div>`).join('')}
       </div>
-      <div class="status-card" style="margin-top:1rem">
-        <h2>Manual refresh</h2>
+      <div class="admin-section">
+        <h3>Manual refresh</h3>
         ${JOBS.map(j => `
-          <div class="status-row">
+          <div class="admin-row">
             <span>${j.label}</span>
-            <button class="refresh-btn" onclick="triggerJob('${j.key}')">Run now</button>
+            <md-filled-tonal-button onclick="triggerJob('${j.key}')">Run now</md-filled-tonal-button>
           </div>`).join('')}
-        <div id="job-result" style="margin-top:0.75rem;font-size:0.85rem;color:#94a3b8"></div>
+        <div class="job-result" id="job-result"></div>
       </div>`;
   } catch (err) {
-    el.innerHTML = `<p style="color:#f87171">Could not reach API: ${err.message}</p>`;
+    el.textContent = 'Could not reach API.';
   }
 }
 
 async function triggerJob(job) {
   const el = document.getElementById('job-result');
   el.textContent = 'Sending…';
-  el.style.color = '#94a3b8';
   try {
-    const res = await fetch(`api/admin/refresh?job=${job}`, { method: 'POST' });
+    const res  = await fetch(`api/admin/refresh?job=${job}`, { method: 'POST' });
     const data = await res.json();
     el.textContent = `✓ ${data.job} accepted — check DB in ~20s`;
-    el.style.color = '#34d399';
   } catch (err) {
     el.textContent = `✗ ${err.message}`;
-    el.style.color = '#f87171';
   }
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-
-function switchView(index) {
-  document.getElementById('view-portfolio').hidden = index !== 0;
-  document.getElementById('view-admin').hidden     = index !== 1;
-  if (index === 1) loadAdmin();
-}
-
-// ── Dimension chips ───────────────────────────────────────────────────────────
-
-function initDimensionChips() {
-  const chips = document.querySelectorAll('#dimension-chips md-filter-chip:not([disabled])');
-  chips.forEach(chip => {
-    chip.addEventListener('click', () => {
-      const dim = chip.dataset.dim;
-      if (dim === activeDimension) return;
-      // deselect all, select clicked
-      chips.forEach(c => c.selected = false);
-      chip.selected = true;
-      activeDimension = dim;
-      loadAllocation(dim);
-    });
-  });
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
-document.addEventListener('DOMContentLoaded', () => {
-  // Tab change
-  const tabs = document.getElementById('main-tabs');
-  tabs.addEventListener('change', () => switchView(tabs.activeTabIndex));
-
-  // Dimension chips (wait for custom elements to be ready)
-  customElements.whenDefined('md-filter-chip').then(initDimensionChips);
-
-  // Initial load
-  loadAllocation(activeDimension);
+document.getElementById('admin-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('admin-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) renderAdmin();
 });
+
+document.getElementById('drill-close').addEventListener('click', () => {
+  pushState({ segment: null });
+});
+
+window.addEventListener('hashchange', render);
+
+render();
