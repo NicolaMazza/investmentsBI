@@ -1,3 +1,8 @@
+const JOBS = [
+  { key: 'ishares_holdings',  label: 'iShares holdings' },
+  { key: 'position_snapshot', label: 'Position snapshot (ECB FX + Ghostfolio)' },
+];
+
 async function loadHealth() {
   const el = document.getElementById('status');
   try {
@@ -16,10 +21,11 @@ async function loadHealth() {
       </div>
       <div class="status-card" style="margin-top:1rem">
         <h2>Manual refresh</h2>
-        <div class="status-row">
-          <span>iShares holdings</span>
-          <button class="refresh-btn" onclick="triggerJob('ishares_holdings')">Run now</button>
-        </div>
+        ${JOBS.map(j => `
+          <div class="status-row">
+            <span>${j.label}</span>
+            <button class="refresh-btn" onclick="triggerJob('${j.key}')">Run now</button>
+          </div>`).join('')}
         <div id="job-result" style="margin-top:0.75rem;font-size:0.85rem;color:#94a3b8"></div>
       </div>`;
   } catch (err) {
@@ -30,10 +36,11 @@ async function loadHealth() {
 async function triggerJob(job) {
   const el = document.getElementById('job-result');
   el.textContent = 'Sending…';
+  el.style.color = '#94a3b8';
   try {
     const res = await fetch(`api/admin/refresh?job=${job}`, { method: 'POST' });
     const data = await res.json();
-    el.textContent = `✓ ${data.status} — check Adminer in ~20s`;
+    el.textContent = `✓ ${data.job} accepted — check DB in ~20s`;
     el.style.color = '#34d399';
   } catch (err) {
     el.textContent = `✗ ${err.message}`;
