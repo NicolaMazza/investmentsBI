@@ -59,6 +59,14 @@ class Order(GhostfolioBase):
     userId: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class User(GhostfolioBase):
+    """Ghostfolio user — used to auto-detect userId when not configured."""
+    __tablename__ = "User"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    role: Mapped[str] = mapped_column(Text, nullable=False)  # USER, ADMIN
+
+
 class MarketData(GhostfolioBase):
     """Historical prices — composite PK (date, symbol, dataSource)."""
     __tablename__ = "MarketData"

@@ -72,7 +72,7 @@ def run() -> None:
                 gf_session=gf_session,
                 rep_session=rep_session2,
                 user_id_filter=settings.ghostfolio_owner_id_or_none,
-                account_id_filter=settings.ghostfolio_account_id_or_none,
+                account_id_filter=None,
             )
         finally:
             gf_session.close()
