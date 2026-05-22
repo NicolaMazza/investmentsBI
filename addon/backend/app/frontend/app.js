@@ -88,11 +88,13 @@ function renderPivots(activeDim) {
   const chipset = document.getElementById('dimension-chips');
   chipset.innerHTML = '';
   for (const dim of DIMENSIONS) {
-    const chip = document.createElement('md-filter-chip');
-    chip.setAttribute('label', dim.label);
+    const chip = document.createElement('button');
+    chip.className = 'filter-chip' +
+      (dim.key === activeDim ? ' selected' : '') +
+      (!dim.available        ? ' disabled'  : '');
+    chip.textContent = dim.label;
     chip.dataset.dim = dim.key;
-    if (dim.key === activeDim) chip.setAttribute('selected', '');
-    if (!dim.available)        chip.setAttribute('disabled', '');
+    chip.disabled = !dim.available;
     if (dim.available) {
       chip.addEventListener('click', () => {
         if (dim.key !== getState().dimension) {
@@ -246,7 +248,7 @@ async function renderAdmin() {
         ${JOBS.map(j => `
           <div class="admin-row">
             <span>${j.label}</span>
-            <md-filled-tonal-button onclick="triggerJob('${j.key}')">Run now</md-filled-tonal-button>
+            <button class="tonal-btn" onclick="triggerJob('${j.key}')">Run now</button>
           </div>`).join('')}
         <div class="job-result" id="job-result"></div>
       </div>`;
@@ -281,15 +283,5 @@ document.getElementById('drill-close').addEventListener('click', () => {
 
 window.addEventListener('hashchange', render);
 
-// Wait for Material Web custom elements before first render so that
-// md-filter-chip and md-chip-set are fully registered.
-// Safety net: also render after 2 s in case the CDN never delivers MWC
-// (whenDefined never rejects — it just hangs if the element is never defined).
-let _rendered = false;
-function _onceRender() {
-  if (_rendered) return;
-  _rendered = true;
-  render();
-}
-customElements.whenDefined('md-filter-chip').then(_onceRender).catch(_onceRender);
-setTimeout(_onceRender, 2000);
+// No external custom-element dependencies — render immediately on DOMContentLoaded.
+render();

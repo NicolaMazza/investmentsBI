@@ -6,21 +6,7 @@
   <title>InvestmentsBI</title>
   <link rel="stylesheet" href="style.css">
 
-  <!-- Material Web Components (M3) -->
-  <script type="importmap">
-  {
-    "imports": { "@material/web/": "https://esm.run/@material/web/" }
-  }
-  </script>
-  <script type="module">
-    import '@material/web/chips/chip-set.js';
-    import '@material/web/chips/filter-chip.js';
-    import '@material/web/button/filled-tonal-button.js';
-    import '@material/web/iconbutton/icon-button.js';
-    import '@material/web/progress/circular-progress.js';
-  </script>
-
-  <!-- Chart.js v4 -->
+  <!-- Chart.js v4 — only external dependency -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -38,7 +24,7 @@
         <span data-range="1m">1M</span>
         <span data-range="ytd">YTD</span>
       </div>
-      <md-icon-button id="admin-toggle" title="Admin">⚙</md-icon-button>
+      <button class="icon-btn" id="admin-toggle" title="Admin">⚙</button>
     </div>
   </div>
 
@@ -63,7 +49,7 @@
   <!-- ── Pivot pills ─────────────────────────────────────────────────── -->
   <div class="pivots">
     <span class="pivots-label">Pivot by</span>
-    <md-chip-set id="dimension-chips"></md-chip-set>
+    <div class="chip-set" id="dimension-chips"></div>
   </div>
 
   <!-- ── Main row: viz + drill ───────────────────────────────────────── -->

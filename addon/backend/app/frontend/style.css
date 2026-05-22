@@ -129,7 +129,22 @@ body {
 
 .date-range span:hover:not(.active) { background: var(--bg-secondary); }
 
-/* md-icon-button used for admin toggle — no custom override needed */
+/* ── Icon button (replaces md-icon-button) ───────────────────────────────── */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.icon-btn:hover { background: var(--bg-secondary); color: var(--text-primary); }
 
 /* ── Admin panel ─────────────────────────────────────────────────────────── */
 .admin-panel {
@@ -170,7 +185,23 @@ body {
 .badge-error   { background: #fee2e2; color: #991b1b; }
 .badge-unknown { background: var(--bg-secondary); color: var(--text-secondary); }
 
-/* md-filled-tonal-button used for run buttons — styled via Material Web tokens */
+/* ── Tonal button (replaces md-filled-tonal-button) ─────────────────────── */
+.tonal-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--bg-info-soft);
+  color: var(--text-info);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.tonal-btn:hover { filter: brightness(0.94); }
 
 .job-result {
   font-size: 12px;
@@ -229,7 +260,44 @@ body {
   margin-right: 4px;
 }
 
-/* md-filter-chip used for pivot pills — styled via Material Web tokens above */
+/* ── Filter chip (replaces md-filter-chip) ───────────────────────────────── */
+.chip-set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.filter-chip:hover:not(.disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+.filter-chip.selected {
+  background: var(--bg-info-soft);
+  border-color: var(--border-info);
+  color: var(--text-info);
+}
+.filter-chip.disabled {
+  opacity: 0.38;
+  cursor: default;
+}
 
 /* ── Main row ────────────────────────────────────────────────────────────── */
 .main-row {
