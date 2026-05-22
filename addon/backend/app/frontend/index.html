@@ -5,13 +5,71 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>InvestmentsBI</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- Material Web Components (M3) -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@material/web/": "https://esm.run/@material/web/"
+    }
+  }
+  </script>
+  <script type="module">
+    import '@material/web/tabs/tabs.js';
+    import '@material/web/tabs/primary-tab.js';
+    import '@material/web/chips/chip-set.js';
+    import '@material/web/chips/filter-chip.js';
+    import '@material/web/progress/circular-progress.js';
+  </script>
+
+  <!-- Chart.js v4 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div id="app">
-    <header>
-      <h1>InvestmentsBI</h1>
+
+    <!-- ── Header ───────────────────────────────────────────────── -->
+    <header class="app-header">
+      <span class="app-title">InvestmentsBI</span>
+      <md-tabs id="main-tabs">
+        <md-primary-tab id="tab-portfolio">Portfolio</md-primary-tab>
+        <md-primary-tab id="tab-admin">Admin</md-primary-tab>
+      </md-tabs>
     </header>
-    <main id="status"></main>
+
+    <!-- ── Portfolio view ───────────────────────────────────────── -->
+    <main id="view-portfolio" class="view">
+
+      <div class="toolbar">
+        <md-chip-set id="dimension-chips">
+          <md-filter-chip label="Sector"       data-dim="sector"       selected></md-filter-chip>
+          <md-filter-chip label="Country"      data-dim="country"      disabled></md-filter-chip>
+          <md-filter-chip label="Currency"     data-dim="currency"     disabled></md-filter-chip>
+          <md-filter-chip label="Asset class"  data-dim="asset_class"  disabled></md-filter-chip>
+        </md-chip-set>
+        <span class="as-of-label">As of <strong id="as-of-date">—</strong></span>
+      </div>
+
+      <div id="stub-banner" class="stub-banner" hidden>
+        Showing representative data — run the Position snapshot job to load real values.
+      </div>
+
+      <div class="chart-layout">
+        <div class="chart-wrap">
+          <canvas id="alloc-chart"></canvas>
+          <div id="chart-loading" class="chart-loading">
+            <md-circular-progress indeterminate></md-circular-progress>
+          </div>
+        </div>
+        <table id="alloc-legend" class="alloc-legend"></table>
+      </div>
+    </main>
+
+    <!-- ── Admin view ───────────────────────────────────────────── -->
+    <main id="view-admin" class="view" hidden>
+      <div id="admin-content"></div>
+    </main>
+
   </div>
   <script src="app.js"></script>
 </body>
