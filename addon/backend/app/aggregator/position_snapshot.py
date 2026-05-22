@@ -52,6 +52,7 @@ class PositionSnapshotRow(TypedDict):
 def _query_orders(
     gf_session: Session,
     cutoff: datetime.datetime,
+    user_id_filter: str | None,
     account_id_filter: str | None,
 ) -> list[tuple[Order, SymbolProfile]]:
     """Return all BUY/SELL orders up to cutoff, joined to SymbolProfile."""
@@ -61,6 +62,8 @@ def _query_orders(
         .filter(Order.date < cutoff)
         .filter(cast(Order.type, SAText).in_(["BUY", "SELL"]))
     )
+    if user_id_filter:
+        q = q.filter(Order.userId == user_id_filter)
     if account_id_filter:
         q = q.filter(Order.accountId == account_id_filter)
     return q.all()
@@ -152,6 +155,7 @@ def build_position_snapshot(
     as_of_date: datetime.date,
     gf_session: Session,
     rep_session: Session,
+    user_id_filter: str | None = None,
     account_id_filter: str | None = None,
 ) -> list[PositionSnapshotRow]:
     """Compute net positions and return rows for position_snapshot.
@@ -161,7 +165,8 @@ def build_position_snapshot(
     as_of_date       : snapshot date (orders and prices up to this date)
     gf_session       : read-only session on the Ghostfolio database
     rep_session      : session on the investments_bi database (for FX rates)
-    account_id_filter: if set, only include orders from this Ghostfolio account
+    user_id_filter   : if set, only include orders belonging to this Ghostfolio user
+    account_id_filter: if set, further restrict to a specific brokerage account
     """
     # date column is "timestamp without time zone" — keep cutoff naive
     cutoff = datetime.datetime.combine(
@@ -170,7 +175,7 @@ def build_position_snapshot(
     )
 
     # ---- 1. Net quantities ------------------------------------------------
-    order_rows = _query_orders(gf_session, cutoff, account_id_filter)
+    order_rows = _query_orders(gf_session, cutoff, user_id_filter, account_id_filter)
 
     meta: dict[tuple[str, str], dict] = {}   # (account_id, sp_id) -> info
     qty: dict[tuple[str, str], Decimal] = {}

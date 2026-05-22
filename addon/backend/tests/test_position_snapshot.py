@@ -96,7 +96,7 @@ def test_net_quantity() -> None:
     with patch(_PATCH_ORDERS, return_value=order_rows), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     assert len(rows) == 1
     assert abs(rows[0]["quantity"] - 12.0) < 1e-6
@@ -107,7 +107,7 @@ def test_market_value_calculation() -> None:
     with patch(_PATCH_ORDERS, return_value=[(ORDER_BUY_AAPL, SP_AAPL)]), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     row = rows[0]
     assert abs(row["quantity"] - 10.0) < 1e-6
@@ -121,7 +121,7 @@ def test_eur_conversion() -> None:
     with patch(_PATCH_ORDERS, return_value=[(ORDER_BUY_AAPL, SP_AAPL)]), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value=FX_USD):  # 1 EUR = 1.12 USD
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     row = rows[0]
     assert abs(row["fx_rate_to_eur"] - 1.12) < 1e-6
@@ -138,7 +138,7 @@ def test_multiple_symbols() -> None:
     with patch(_PATCH_ORDERS, return_value=order_rows), \
          patch(_PATCH_PRICES, return_value=PRICES_BOTH), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     assert len(rows) == 2
     symbols = {r["symbol"] for r in rows}
@@ -150,7 +150,7 @@ def test_no_orders_returns_empty() -> None:
     with patch(_PATCH_ORDERS, return_value=[]), \
          patch(_PATCH_PRICES, return_value={}), \
          patch(_PATCH_FX, return_value={"EUR": 1.0}):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     assert rows == []
 
@@ -160,7 +160,7 @@ def test_null_market_value_when_no_price() -> None:
     with patch(_PATCH_ORDERS, return_value=[(ORDER_BUY_AAPL, SP_AAPL)]), \
          patch(_PATCH_PRICES, return_value={}), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     row = rows[0]
     assert row["market_price_native"] is None
@@ -173,7 +173,7 @@ def test_null_eur_value_when_no_fx() -> None:
     with patch(_PATCH_ORDERS, return_value=[(ORDER_BUY_AAPL, SP_AAPL)]), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value={"EUR": 1.0}):  # USD not in fx_rates
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     row = rows[0]
     assert row["market_price_native"] is not None
@@ -184,7 +184,7 @@ def test_isin_and_name_propagated() -> None:
     with patch(_PATCH_ORDERS, return_value=[(ORDER_BUY_AAPL, SP_AAPL)]), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     row = rows[0]
     assert row["isin"] == "US0378331005"
@@ -198,6 +198,6 @@ def test_fully_sold_position_excluded() -> None:
     with patch(_PATCH_ORDERS, return_value=order_rows), \
          patch(_PATCH_PRICES, return_value=PRICES_AAPL), \
          patch(_PATCH_FX, return_value=FX_USD):
-        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, ACCOUNT)
+        rows = build_position_snapshot(AS_OF, GF_SESSION, REP_SESSION, user_id_filter=ACCOUNT)
 
     assert rows == []

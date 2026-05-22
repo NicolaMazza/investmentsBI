@@ -17,6 +17,7 @@ options:
   postgres_password_rw: ""
   postgres_user_ro: "reporter_ro"
   postgres_password_ro: ""
+  ghostfolio_user_id: ""
   ghostfolio_account_id: ""
   base_currency: "EUR"
   snapshot_local_time: "00:00"
@@ -30,6 +31,7 @@ schema:
   postgres_password_rw: password
   postgres_user_ro: str
   postgres_password_ro: password
+  ghostfolio_user_id: str?
   ghostfolio_account_id: str?
   base_currency: str
   snapshot_local_time: str
