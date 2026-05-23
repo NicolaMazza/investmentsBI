@@ -1,13 +1,27 @@
-"""Allocation API — look-through sector/country/currency aggregation.
+"""Allocation API — look-through aggregation across all supported dimensions.
 
-Pipeline:
-  1. Resolve the as-of date (latest position_snapshot date, or the requested date).
-  2. Load all positions for that date with market_value_eur > 0.
-  3. For each position, find the latest product_composition_snapshot for its ISIN.
-  4. Distribute each position's market_value_eur across dimension buckets weighted
-     by weight_pct (normalised so they sum to 1.0 within each composition).
-  5. Positions with no composition data fall into an "Other" bucket.
-  6. Falls back to a representative stub when the DB has no position rows.
+Supported dimensions
+--------------------
+sector       : GICS sector from composition (treemap)
+country      : country_listing from composition (treemap)
+currency     : native_currency from composition (donut)
+company      : constituent name (top 30 + Other, treemap)
+product      : one bucket per ETF held, no look-through (treemap)
+market_cap   : instrument_reference.market_cap_bucket — disabled until M7
+               enrichment job runs; returns stub "Unknown" for all.
+
+Pipeline (sector / country / currency / company)
+-------------------------------------------------
+1. Resolve as-of date from position_snapshot.
+2. Load positions for that date with market_value_eur > 0.
+3. For each position ISIN, find the latest product_composition_snapshot.
+4. Distribute market_value_eur across dimension buckets by normalised weight_pct.
+5. Positions with no composition → "Other" bucket.
+6. Falls back to a representative stub when the DB has no position rows.
+
+Pipeline (product)
+------------------
+Return positions directly, labelled by product.name — no look-through.
 """
 from __future__ import annotations
 
@@ -20,18 +34,25 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.reporting import PositionSnapshot, ProductCompositionSnapshot
+from app.db.reporting import (
+    PositionSnapshot,
+    Product,
+    ProductCompositionSnapshot,
+)
 from app.db.reporting_session import get_session
 
 log = logging.getLogger(__name__)
 router = APIRouter()
 
+_TOP_N_COMPANY = 30  # cap for company dimension to keep treemap readable
+
 # ── Dimension helpers ─────────────────────────────────────────────────────────
 
-_DIMENSION_COLUMNS = {
+_DIMENSION_COLUMNS: dict[str, object] = {
     "sector":   lambda r: r.sector          or "Unknown",
     "country":  lambda r: r.country_listing or r.country_incorp or "Unknown",
     "currency": lambda r: r.native_currency or "Unknown",
+    "company":  lambda r: r.constituent_name or r.constituent_isin or "Unknown",
 }
 
 # ── Stub fallback ─────────────────────────────────────────────────────────────
@@ -59,39 +80,36 @@ def _stub_response(dimension: str) -> dict:
         for lbl, w in _STUB_SECTORS
     ]
     return {
-        "as_of_date": str(datetime.date.today()),
-        "dimension": dimension,
-        "total_eur": round(total, 2),
-        "funds": 1,
+        "as_of_date":   str(datetime.date.today()),
+        "dimension":    dimension,
+        "total_eur":    round(total, 2),
+        "funds":        1,
         "look_through": None,
-        "top_single": None,
-        "stub": True,
-        "rows": rows,
+        "top_single":   None,
+        "stub":         True,
+        "rows":         rows,
     }
 
 
-# ── Aggregation logic ─────────────────────────────────────────────────────────
+# ── Helpers shared with drill.py ──────────────────────────────────────────────
 
-def _query_allocation(
+def resolve_snapshot_date(
     session: Session,
-    dimension: str,
-    as_of_date: Optional[datetime.date] = None,
-) -> dict:
-    """Return real look-through allocation from the reporting DB."""
+    requested: Optional[datetime.date],
+) -> Optional[datetime.date]:
+    """Return the requested date if given, otherwise the latest position date."""
+    if requested is not None:
+        return requested
+    return session.execute(
+        select(func.max(PositionSnapshot.as_of_date))
+    ).scalar()
 
-    label_fn = _DIMENSION_COLUMNS.get(dimension, _DIMENSION_COLUMNS["sector"])
 
-    # 1. Resolve snapshot date
-    if as_of_date is None:
-        row = session.execute(
-            select(func.max(PositionSnapshot.as_of_date))
-        ).scalar()
-        if row is None:
-            return None  # caller will fall back to stub
-        as_of_date = row
-
-    # 2. Load positions for that date
-    positions = session.execute(
+def load_positions(
+    session: Session,
+    as_of_date: datetime.date,
+) -> list[PositionSnapshot]:
+    return session.execute(
         select(PositionSnapshot).where(
             PositionSnapshot.as_of_date == as_of_date,
             PositionSnapshot.market_value_eur.isnot(None),
@@ -99,25 +117,23 @@ def _query_allocation(
         )
     ).scalars().all()
 
-    if not positions:
-        return None
 
-    # 3. For each unique ISIN in the portfolio, find the latest composition date
-    unique_isins = {p.isin for p in positions if p.isin}
-    latest_comp_date: dict[str, datetime.date] = {}
-    for isin in unique_isins:
+def load_composition_map(
+    session: Session,
+    isins: set[str],
+    as_of_date: datetime.date,
+) -> dict[str, list[ProductCompositionSnapshot]]:
+    """Return latest composition rows per product ISIN, on or before as_of_date."""
+    comp_rows: dict[str, list[ProductCompositionSnapshot]] = {}
+    for isin in isins:
         d = session.execute(
             select(func.max(ProductCompositionSnapshot.as_of_date)).where(
                 ProductCompositionSnapshot.product_isin == isin,
                 ProductCompositionSnapshot.as_of_date <= as_of_date,
             )
         ).scalar()
-        if d is not None:
-            latest_comp_date[isin] = d
-
-    # 4. Load composition rows (bulk, one query per ISIN × date pair)
-    comp_rows: dict[str, list[ProductCompositionSnapshot]] = collections.defaultdict(list)
-    for isin, d in latest_comp_date.items():
+        if d is None:
+            continue
         rows = session.execute(
             select(ProductCompositionSnapshot).where(
                 ProductCompositionSnapshot.product_isin == isin,
@@ -125,44 +141,93 @@ def _query_allocation(
             )
         ).scalars().all()
         comp_rows[isin] = rows
+    return comp_rows
 
-    # 5. Distribute market_value_eur across dimension buckets
-    buckets: dict[str, float] = collections.defaultdict(float)
-    total_eur = 0.0
 
-    for pos in positions:
-        mv = float(pos.market_value_eur)
-        total_eur += mv
-        rows = comp_rows.get(pos.isin or "", [])
+# ── Aggregation logic ─────────────────────────────────────────────────────────
 
-        if not rows:
-            # No look-through data — attribute to "Other"
-            buckets["Other"] += mv
-            continue
+def _query_allocation(
+    session: Session,
+    dimension: str,
+    as_of_date: Optional[datetime.date],
+) -> Optional[dict]:
+    """Return real look-through allocation from the reporting DB, or None."""
 
-        # Normalise weights (iShares CSV weights can sum to <100 due to rounding)
-        weight_sum = sum(float(r.weight_pct) for r in rows)
-        if weight_sum <= 0:
-            buckets["Other"] += mv
-            continue
+    as_of_date = resolve_snapshot_date(session, as_of_date)
+    if as_of_date is None:
+        return None
 
-        for r in rows:
-            label = label_fn(r)
-            buckets[label] += mv * (float(r.weight_pct) / weight_sum)
+    positions = load_positions(session, as_of_date)
+    if not positions:
+        return None
 
-    # 6. Build sorted response rows
+    total_eur = sum(float(p.market_value_eur) for p in positions)  # type: ignore[arg-type]
     if total_eur <= 0:
         return None
 
-    sorted_buckets = sorted(buckets.items(), key=lambda x: x[1], reverse=True)
-    response_rows = [
-        {
-            "label":     label,
-            "value_eur": round(value, 2),
-            "weight":    round(value / total_eur, 4),
+    # ── product dimension: no look-through ───────────────────────────────────
+    if dimension == "product":
+        product_names: dict[str, str] = {
+            p.isin: p.name
+            for p in session.execute(select(Product)).scalars().all()
         }
-        for label, value in sorted_buckets
-        if value > 0.01  # drop sub-cent noise
+        buckets: dict[str, float] = collections.defaultdict(float)
+        for pos in positions:
+            label = product_names.get(pos.product_isin, pos.product_isin)
+            buckets[label] += float(pos.market_value_eur)  # type: ignore[arg-type]
+
+        rows = [
+            {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4)}
+            for lbl, v in sorted(buckets.items(), key=lambda x: -x[1])
+        ]
+        return {
+            "as_of_date":   str(as_of_date),
+            "dimension":    dimension,
+            "total_eur":    round(total_eur, 2),
+            "funds":        len(positions),
+            "look_through": None,
+            "top_single":   None,
+            "stub":         False,
+            "rows":         rows,
+        }
+
+    # ── look-through dimensions ───────────────────────────────────────────────
+    label_fn = _DIMENSION_COLUMNS.get(dimension, _DIMENSION_COLUMNS["sector"])
+
+    comp_map = load_composition_map(
+        session, {p.product_isin for p in positions}, as_of_date
+    )
+
+    buckets_lt: dict[str, float] = collections.defaultdict(float)
+    for pos in positions:
+        mv = float(pos.market_value_eur)  # type: ignore[arg-type]
+        rows_c = comp_map.get(pos.product_isin, [])
+        if not rows_c:
+            buckets_lt["Other"] += mv
+            continue
+        weight_sum = sum(float(r.weight_pct) for r in rows_c)
+        if weight_sum <= 0:
+            buckets_lt["Other"] += mv
+            continue
+        for r in rows_c:
+            buckets_lt[label_fn(r)] += mv * (float(r.weight_pct) / weight_sum)  # type: ignore[operator]
+
+    # Cap company dimension to top _TOP_N_COMPANY
+    if dimension == "company":
+        sorted_b = sorted(buckets_lt.items(), key=lambda x: -x[1])
+        top = sorted_b[:_TOP_N_COMPANY]
+        rest_val = sum(v for _, v in sorted_b[_TOP_N_COMPANY:])
+        rest_cnt = len(sorted_b) - _TOP_N_COMPANY
+        if rest_val > 0.01:
+            top.append((f"Other ({rest_cnt} more)", rest_val))
+        sorted_buckets = top
+    else:
+        sorted_buckets = sorted(buckets_lt.items(), key=lambda x: -x[1])
+
+    response_rows = [
+        {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4)}
+        for lbl, v in sorted_buckets
+        if v > 0.01
     ]
 
     return {
@@ -170,8 +235,8 @@ def _query_allocation(
         "dimension":    dimension,
         "total_eur":    round(total_eur, 2),
         "funds":        len(positions),
-        "look_through": None,   # future milestone
-        "top_single":   None,   # future milestone
+        "look_through": None,
+        "top_single":   None,
         "stub":         False,
         "rows":         response_rows,
     }
@@ -182,14 +247,10 @@ def _query_allocation(
 @router.get("/allocation")
 def get_allocation(
     dimension: str = Query("sector", description="Allocation dimension"),
-    date: Optional[str] = Query(None, description="ISO date (YYYY-MM-DD); defaults to latest snapshot"),
+    date: Optional[str] = Query(None, description="ISO date YYYY-MM-DD; defaults to latest snapshot"),
     session: Session = Depends(get_session),
 ) -> dict:
-    """Return look-through portfolio allocation for the requested dimension.
-
-    Falls back to a representative stub when no position data is available,
-    signalled by ``stub: true`` in the response.
-    """
+    """Return look-through portfolio allocation for the requested dimension."""
     as_of_date: Optional[datetime.date] = None
     if date:
         try:

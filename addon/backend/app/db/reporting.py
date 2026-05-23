@@ -78,26 +78,64 @@ class FxRate(Base):
 
 
 class PositionSnapshot(Base):
-    """Net position per account × symbol as of a given date.
+    """Net position per product as of a given date.
 
-    Quantities are computed from Ghostfolio Orders (BUY − SELL).
-    Market values use the latest available price from Ghostfolio MarketData;
-    EUR conversion uses same-date (or nearest prior) fx_rate rows.
+    M5 schema: one row per (as_of_date, product_isin), aggregated across
+    all Ghostfolio accounts.  The M3 schema (account_id × symbol_profile_id)
+    was replaced by migration 0004.
+
+    Re-run the position_snapshot job after upgrading from M3 → M5 to
+    repopulate this table with the new schema.
     """
     __tablename__ = "position_snapshot"
 
     as_of_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
-    account_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    symbol_profile_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    isin: Mapped[Optional[str]] = mapped_column(Text)
-    symbol: Mapped[Optional[str]] = mapped_column(Text)
-    name: Mapped[Optional[str]] = mapped_column(Text)
-    currency: Mapped[Optional[str]] = mapped_column(Text)
-    quantity: Mapped[float] = mapped_column(Numeric(30, 8), nullable=False)
-    market_price_native: Mapped[Optional[float]] = mapped_column(Numeric(20, 4))
+    product_isin: Mapped[str] = mapped_column(Text, primary_key=True)
+    quantity: Mapped[float] = mapped_column(Numeric(20, 4), nullable=False)
     market_value_native: Mapped[Optional[float]] = mapped_column(Numeric(20, 2))
-    fx_rate_to_eur: Mapped[Optional[float]] = mapped_column(Numeric(18, 8))
+    native_currency: Mapped[Optional[str]] = mapped_column(Text)
     market_value_eur: Mapped[Optional[float]] = mapped_column(Numeric(20, 2))
+    cost_basis_eur: Mapped[Optional[float]] = mapped_column(Numeric(20, 2))
+
+
+class PortfolioAllocationSnapshot(Base):
+    """Pre-computed daily aggregates per (date, dimension, segment).
+
+    Populated by the aggregate_allocation scheduler job (M7).
+    The allocation API falls back to on-the-fly computation when empty.
+    """
+    __tablename__ = "portfolio_allocation_snapshot"
+
+    as_of_date: Mapped[datetime.date] = mapped_column(Date, primary_key=True)
+    dimension: Mapped[str] = mapped_column(Text, primary_key=True)
+    segment_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    segment_label: Mapped[str] = mapped_column(Text, nullable=False)
+    value_eur: Mapped[float] = mapped_column(Numeric(20, 2), nullable=False)
+    weight_pct: Mapped[float] = mapped_column(Numeric(8, 5), nullable=False)
+    holding_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class InstrumentReference(Base):
+    """Constituent-level reference data enriched weekly by market_cap job (M7)."""
+    __tablename__ = "instrument_reference"
+
+    isin: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[Optional[str]] = mapped_column(Text)
+    market_cap_eur: Mapped[Optional[float]] = mapped_column(Numeric(20, 0))
+    market_cap_bucket: Mapped[Optional[str]] = mapped_column(Text)
+    last_refreshed_at: Mapped[Optional[datetime.datetime]] = mapped_column()
+
+
+class CountryOfRiskOverride(Base):
+    """Manual per-ISIN country-of-risk overrides (admin endpoint, M7)."""
+    __tablename__ = "country_of_risk_override"
+
+    isin: Mapped[str] = mapped_column(Text, primary_key=True)
+    country: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        nullable=False, server_default=func.now()
+    )
 
 
 class JobRun(Base):

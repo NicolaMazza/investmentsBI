@@ -15,6 +15,8 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "psycopg2-binary>=2.9.0",
     "yfinance>=0.2.0",
+    "playwright>=1.40.0",
+    "xlrd>=2.0.1",
 ]
 
 [build-system]

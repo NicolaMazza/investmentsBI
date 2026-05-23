@@ -108,9 +108,17 @@ function _colorIdx(label) {
  * @param {function}    onSelect(item) — called when a rect is clicked
  */
 function renderTreemap(svg, items, selectedLabel, onSelect) {
-  const vb   = svg.viewBox.baseVal;
-  const vw   = vb.width  || 560;
-  const vh   = vb.height || 280;
+  // Adaptive aspect ratio: squarer on narrow screens so the chart is readable.
+  // VW stays fixed at 560 (SVG coordinate space); VH grows on mobile so that
+  // the rendered pixel height = clientWidth × (VH/VW) is comfortable.
+  //   ≥ 500 px → 560×280 (2:1, same as before)
+  //   < 500 px → 560×420 (4:3, ~172 px on a 230 px panel)
+  const VW   = 560;
+  const cw   = svg.clientWidth || VW;
+  const VH   = cw < 500 ? Math.round(VW * 0.75) : 280;
+  svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
+  const vw   = VW;
+  const vh   = VH;
   const GAP  = 2;
 
   svg.innerHTML = '';

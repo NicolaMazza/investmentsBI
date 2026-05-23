@@ -1,8 +1,15 @@
-"""Position snapshot aggregator.
+"""Position snapshot aggregator — M5 schema.
 
 Reads Ghostfolio Orders + MarketData (read-only), combines with FX rates
 from our reporting DB, and returns a list of PositionSnapshotRow dicts
 ready to insert into `position_snapshot`.
+
+Key changes from M3:
+- Positions are now grouped by product ISIN (not account × symbol_profile_id).
+  Multiple Ghostfolio accounts holding the same ETF are merged into one row.
+- Only ISINs that exist in the `product` table are emitted; unknown ISINs
+  are logged and skipped (prevents FK-constraint errors).
+- cost_basis_eur is set to NULL (computed in a future milestone).
 
 Design notes
 ------------
@@ -10,8 +17,8 @@ Design notes
 - Positions with quantity <= 0 after netting are excluded (fully divested).
 - Market price = latest MarketData.marketPrice with date <= as_of_date.
 - FX rate  = latest fx_rate row with as_of_date <= target date, base EUR.
-- If no market price is found the row is still written (price/value = NULL).
-- If no FX rate is found the EUR value is NULL but the row is still written.
+- If no market price is found the row is still written (value = NULL).
+- If no FX rate is found market_value_eur is NULL but the row is written.
 """
 from __future__ import annotations
 
@@ -20,33 +27,28 @@ import logging
 from decimal import Decimal
 from typing import TypedDict
 
-from sqlalchemy import cast, func, tuple_
+from sqlalchemy import cast, func, select, tuple_
 from sqlalchemy import Text as SAText
 from sqlalchemy.orm import Session
 
 from app.db.ghostfolio import MarketData, Order, SymbolProfile
-from app.db.reporting import FxRate
+from app.db.reporting import FxRate, Product
 
 log = logging.getLogger(__name__)
 
 
 class PositionSnapshotRow(TypedDict):
     as_of_date: datetime.date
-    account_id: str
-    symbol_profile_id: str
-    isin: str | None
-    symbol: str | None
-    name: str | None
-    currency: str | None
+    product_isin: str
     quantity: float
-    market_price_native: float | None
     market_value_native: float | None
-    fx_rate_to_eur: float | None
+    native_currency: str | None
     market_value_eur: float | None
+    cost_basis_eur: float | None
 
 
 # ---------------------------------------------------------------------------
-# Query helpers — thin wrappers kept separate so tests can mock them cleanly
+# Query helpers
 # ---------------------------------------------------------------------------
 
 def _query_orders(
@@ -72,7 +74,7 @@ def _query_orders(
 def _query_latest_prices(
     gf_session: Session,
     symbol_source_pairs: set[tuple[str, str]],
-    cutoff: datetime.datetime,  # must be timezone-naive (MarketData.date is TIMESTAMP)
+    cutoff: datetime.datetime,
 ) -> dict[tuple[str, str], float]:
     """Return latest marketPrice per (symbol, dataSource) pair up to cutoff."""
     if not symbol_source_pairs:
@@ -162,19 +164,24 @@ def build_position_snapshot(
 
     Parameters
     ----------
-    as_of_date       : snapshot date (orders and prices up to this date)
-    gf_session       : read-only session on the Ghostfolio database
-    rep_session      : session on the investments_bi database (for FX rates)
-    user_id_filter   : if set, only include orders belonging to this Ghostfolio user
-    account_id_filter: if set, further restrict to a specific brokerage account
+    as_of_date        : snapshot date (orders and prices up to this date)
+    gf_session        : read-only session on the Ghostfolio database
+    rep_session       : session on the investments_bi database (for FX rates)
+    user_id_filter    : if set, only include orders belonging to this Ghostfolio user
+    account_id_filter : if set, further restrict to a specific brokerage account
     """
-    # date column is "timestamp without time zone" — keep cutoff naive
     cutoff = datetime.datetime.combine(
         as_of_date + datetime.timedelta(days=1),
         datetime.time.min,
     )
 
-    # ---- 1. Net quantities ------------------------------------------------
+    # ── 1. Known product ISINs (FK guard) ────────────────────────────────────
+    known_isins: set[str] = {
+        row[0] for row in rep_session.execute(select(Product.isin)).all()
+    }
+    log.debug("position_snapshot: %d known product ISINs", len(known_isins))
+
+    # ── 2. Net quantities from Ghostfolio orders ─────────────────────────────
     order_rows = _query_orders(gf_session, cutoff, user_id_filter, account_id_filter)
     log.info(
         "position_snapshot %s: _query_orders returned %d rows "
@@ -182,39 +189,42 @@ def build_position_snapshot(
         as_of_date, len(order_rows), user_id_filter, account_id_filter, cutoff,
     )
 
-    meta: dict[tuple[str, str], dict] = {}   # (account_id, sp_id) -> info
-    qty: dict[tuple[str, str], Decimal] = {}
+    # Keyed by ISIN; accumulate across all accounts
+    meta: dict[str, dict] = {}          # isin -> {currency, symbol, data_source}
+    qty: dict[str, Decimal] = {}
 
     for order, sp in order_rows:
-        acct = order.accountId or "unknown"
-        key = (acct, sp.id)
+        isin = sp.isin
+        if not isin:
+            log.debug("Skipping order without ISIN: symbol=%s", sp.symbol)
+            continue
+        if isin not in known_isins:
+            log.debug("Skipping order for unknown product ISIN %s (%s)", isin, sp.symbol)
+            continue
 
-        if key not in meta:
-            meta[key] = {
-                "symbol_profile_id": sp.id,
-                "isin": sp.isin,
-                "symbol": sp.symbol,
-                "name": sp.name,
-                "currency": sp.currency,
+        if isin not in meta:
+            meta[isin] = {
+                "currency":    sp.currency,
+                "symbol":      sp.symbol,
                 "data_source": sp.dataSource,
             }
-            qty[key] = Decimal("0")
+            qty[isin] = Decimal("0")
 
         if order.type == "BUY":
-            qty[key] += order.quantity
+            qty[isin] += order.quantity
         else:
-            qty[key] -= order.quantity
+            qty[isin] -= order.quantity
 
-    active = {k: v for k, v in qty.items() if v > 0}
+    active = {isin: q for isin, q in qty.items() if q > 0}
     if not active:
         log.info("position_snapshot %s: no active positions found", as_of_date)
         return []
 
     log.info("position_snapshot %s: %d active positions", as_of_date, len(active))
 
-    # ---- 2. Latest market prices ------------------------------------------
+    # ── 3. Latest market prices ──────────────────────────────────────────────
     symbol_source_pairs = {
-        (meta[k]["symbol"], meta[k]["data_source"]) for k in active
+        (meta[isin]["symbol"], meta[isin]["data_source"]) for isin in active
     }
     prices = _query_latest_prices(gf_session, symbol_source_pairs, cutoff)
 
@@ -222,27 +232,25 @@ def build_position_snapshot(
     if missing_prices:
         log.warning(
             "position_snapshot %s: no market price for %d symbol(s): %s",
-            as_of_date,
-            len(missing_prices),
+            as_of_date, len(missing_prices),
             ", ".join(f"{s}/{d}" for s, d in sorted(missing_prices)),
         )
 
-    # ---- 3. FX rates -------------------------------------------------------
-    currencies = {meta[k]["currency"] for k in active}
+    # ── 4. FX rates ──────────────────────────────────────────────────────────
+    currencies = {meta[isin]["currency"] for isin in active}
     fx_rates = _query_fx_rates(rep_session, currencies, as_of_date)
 
-    missing_fx = {c for c in currencies if c not in fx_rates}
+    missing_fx = {c for c in currencies if c and c not in fx_rates}
     if missing_fx:
         log.warning(
             "position_snapshot %s: no FX rate for %s — EUR values will be NULL",
-            as_of_date,
-            ", ".join(sorted(missing_fx)),
+            as_of_date, ", ".join(sorted(missing_fx)),
         )
 
-    # ---- 4. Assemble rows --------------------------------------------------
+    # ── 5. Assemble rows ─────────────────────────────────────────────────────
     rows: list[PositionSnapshotRow] = []
-    for (acct, _sp_id), quantity in active.items():
-        m = meta[(acct, _sp_id)]
+    for isin, quantity in active.items():
+        m = meta[isin]
         currency = m["currency"]
         quantity_f = float(quantity)
 
@@ -251,27 +259,22 @@ def build_position_snapshot(
             round(quantity_f * market_price, 2) if market_price is not None else None
         )
 
-        rate = fx_rates.get(currency)
+        rate = fx_rates.get(currency) if currency else None
         market_value_eur = (
             round(market_value_native / rate, 2)
-            if (market_value_native is not None and rate is not None)
+            if (market_value_native is not None and rate is not None and rate != 0)
             else None
         )
 
         rows.append(
             PositionSnapshotRow(
                 as_of_date=as_of_date,
-                account_id=acct,
-                symbol_profile_id=m["symbol_profile_id"],
-                isin=m["isin"],
-                symbol=m["symbol"],
-                name=m["name"],
-                currency=currency,
+                product_isin=isin,
                 quantity=quantity_f,
-                market_price_native=market_price,
                 market_value_native=market_value_native,
-                fx_rate_to_eur=rate,
+                native_currency=currency,
                 market_value_eur=market_value_eur,
+                cost_basis_eur=None,  # computed in a future milestone
             )
         )
 

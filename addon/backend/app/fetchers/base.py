@@ -133,4 +133,4 @@ def get_fetcher(parser_key: str) -> BaseFetcher:
 
 
 def load_all_fetchers() -> None:
-    from app.fetchers import ishares  # noqa: F401
+    from app.fetchers import hsbc, ishares, vanguard  # noqa: F401

@@ -81,6 +81,7 @@ def run() -> None:
         # ---- Step 3: Write snapshot -----------------------------------------
         write_session = ReportingSession()
         try:
+            # Delete today's rows before re-inserting (PK is now as_of_date + product_isin)
             write_session.query(PositionSnapshot).filter(
                 PositionSnapshot.as_of_date == as_of_date,
             ).delete()

@@ -1,5 +1,5 @@
 name: "InvestmentsBI"
-version: "0.1.4"
+version: "0.1.8"
 slug: "investmentsbi"
 description: "Look-through allocation reporting for Ghostfolio portfolios"
 arch: [amd64, aarch64]
