@@ -29,21 +29,25 @@ _CURRENCY_MAP: dict[str, str] = {
 }
 
 _SECTOR_MAP: dict[str, str] = {
-    "information technology": "Information Technology",
-    "financials": "Financials",
-    "health care": "Health Care",
-    "healthcare": "Health Care",
+    # GICS canonical names (both iShares and Vanguard variants → one label)
+    "information technology": "Technology",
+    "technology":             "Technology",
+    "financials":             "Financials",
+    "financial services":     "Financials",
+    "health care":            "Health Care",
+    "healthcare":             "Health Care",
     "consumer discretionary": "Consumer Discretionary",
     "communication services": "Communication Services",
-    "telecommunications": "Communication Services",
-    "industrials": "Industrials",
-    "consumer staples": "Consumer Staples",
-    "energy": "Energy",
-    "utilities": "Utilities",
-    "real estate": "Real Estate",
-    "materials": "Materials",
+    "telecommunications":     "Communication Services",
+    "industrials":            "Industrials",
+    "consumer staples":       "Consumer Staples",
+    "energy":                 "Energy",
+    "utilities":              "Utilities",
+    "real estate":            "Real Estate",
+    "materials":              "Materials",
+    "basic materials":        "Materials",
     "cash and/or derivatives": "Cash & Derivatives",
-    "cash": "Cash & Derivatives",
+    "cash":                   "Cash & Derivatives",
 }
 
 

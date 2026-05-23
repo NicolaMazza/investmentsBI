@@ -34,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.reporting import (
+    InstrumentReference,
     PortfolioAllocationSnapshot,
     PositionSnapshot,
     Product,
@@ -49,10 +50,11 @@ _TOP_N_COMPANY = 30  # cap for company dimension to keep treemap readable
 # ── Dimension helpers ─────────────────────────────────────────────────────────
 
 _DIMENSION_COLUMNS: dict[str, object] = {
-    "sector":   lambda r: r.sector          or "Unknown",
-    "country":  lambda r: r.country_listing or r.country_incorp or "Unknown",
-    "currency": lambda r: r.native_currency or "Unknown",
-    "company":  lambda r: r.constituent_name or r.constituent_isin or "Unknown",
+    "sector":     lambda r: r.sector          or "Unknown",
+    "country":    lambda r: r.country_listing or r.country_incorp or "Unknown",
+    "currency":   lambda r: r.native_currency or "Unknown",
+    "company":    lambda r: r.constituent_name or r.constituent_isin or "Unknown",
+    "market_cap": lambda r: r.market_cap_bucket or "Unknown",  # joined in below
 }
 
 # ── Stub fallback ─────────────────────────────────────────────────────────────
@@ -116,6 +118,18 @@ def load_positions(
             PositionSnapshot.market_value_eur > 0,
         )
     ).scalars().all()
+
+
+def load_instrument_reference(
+    session: Session,
+) -> dict[str, str]:
+    """Return {constituent_isin: market_cap_bucket} for all known instruments."""
+    rows = session.execute(
+        select(InstrumentReference).where(
+            InstrumentReference.market_cap_bucket.isnot(None)
+        )
+    ).scalars().all()
+    return {r.isin: r.market_cap_bucket for r in rows}  # type: ignore[return-value]
 
 
 def load_composition_map(
@@ -341,6 +355,13 @@ def _query_allocation(
     comp_map = load_composition_map(
         session, {p.product_isin for p in positions}, as_of_date
     )
+
+    # Attach market_cap_bucket to each composition row (needed for market_cap dim).
+    if dimension == "market_cap":
+        ref_map = load_instrument_reference(session)
+        for rows_c in comp_map.values():
+            for r in rows_c:
+                r.market_cap_bucket = ref_map.get(r.constituent_isin)  # type: ignore[attr-defined]
 
     buckets_lt: dict[str, float] = collections.defaultdict(float)
     for pos in positions:

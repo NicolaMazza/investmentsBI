@@ -19,7 +19,7 @@ import logging
 
 from sqlalchemy import select
 
-from app.api.allocation import load_composition_map, load_positions, resolve_snapshot_date
+from app.api.allocation import load_composition_map, load_instrument_reference, load_positions, resolve_snapshot_date
 from app.db.reporting import PortfolioAllocationSnapshot
 from app.db.reporting_session import SessionLocal
 from app.jobs.base import job_context
@@ -28,13 +28,14 @@ log = logging.getLogger(__name__)
 
 JOB_NAME = "aggregate_allocation"
 
-_DIMENSIONS = ("sector", "country", "currency", "company", "product")
+_DIMENSIONS = ("sector", "country", "currency", "company", "product", "market_cap")
 
 _LABEL_FNS: dict[str, object] = {
-    "sector":   lambda r: r.sector          or "Unknown",
-    "country":  lambda r: r.country_listing or r.country_incorp or "Unknown",
-    "currency": lambda r: r.native_currency or "Unknown",
-    "company":  lambda r: r.constituent_name or r.constituent_isin or "Unknown",
+    "sector":     lambda r: r.sector          or "Unknown",
+    "country":    lambda r: r.country_listing or r.country_incorp or "Unknown",
+    "currency":   lambda r: r.native_currency or "Unknown",
+    "company":    lambda r: r.constituent_name or r.constituent_isin or "Unknown",
+    "market_cap": lambda r: getattr(r, "market_cap_bucket", None) or "Unknown",
 }
 
 
@@ -77,8 +78,14 @@ def run() -> None:
                 "product": {k: len(v) for k, v in product_counts.items()}
             }
 
+            # Attach market_cap_bucket for the market_cap dimension
+            ref_map = load_instrument_reference(session)
+            for rows_c in comp_map.values():
+                for r in rows_c:
+                    r.market_cap_bucket = ref_map.get(r.constituent_isin)  # type: ignore[attr-defined]
+
             # ── look-through dimensions ───────────────────────────────────────
-            for dim in ("sector", "country", "currency", "company"):
+            for dim in ("sector", "country", "currency", "company", "market_cap"):
                 label_fn = _LABEL_FNS[dim]  # type: ignore[index]
                 buckets: dict[str, float] = collections.defaultdict(float)
                 counts:  dict[str, int]   = collections.defaultdict(int)

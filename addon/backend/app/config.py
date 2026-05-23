@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     job_time_ishares:    str = "00:05"   # ishares_holdings fire time
     job_time_etf:        str = "00:10"   # etf_holdings fire time (Playwright)
     job_time_aggregate:  str = "00:20"   # aggregate_allocation fire time
+    job_time_market_cap: str = "01:00"   # market_cap_enrichment fire time (weekly, Sunday)
     log_level: str = "INFO"
 
     @property

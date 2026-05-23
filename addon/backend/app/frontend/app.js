@@ -5,19 +5,20 @@
 // ── Dimensions ───────────────────────────────────────────────────────────────
 
 const DIMENSIONS = [
-  { key: 'sector',     label: 'Sector',     chartType: 'treemap', available: true  },
-  { key: 'company',    label: 'Company',    chartType: 'treemap', available: true  },
-  { key: 'country',    label: 'Country',    chartType: 'treemap', available: true  },
-  { key: 'currency',   label: 'Currency',   chartType: 'donut',   available: true  },
-  { key: 'market_cap', label: 'Market cap', chartType: 'bar',     available: false },
-  { key: 'product',    label: 'ETF',        chartType: 'treemap', available: true  },
+  { key: 'sector',     label: 'Sector',     chartType: 'treemap', available: true },
+  { key: 'company',    label: 'Company',    chartType: 'treemap', available: true },
+  { key: 'country',    label: 'Country',    chartType: 'treemap', available: true },
+  { key: 'currency',   label: 'Currency',   chartType: 'donut',   available: true },
+  { key: 'market_cap', label: 'Market cap', chartType: 'treemap', available: true },
+  { key: 'product',    label: 'ETF',        chartType: 'treemap', available: true },
 ];
 
 const JOBS = [
-  { key: 'ishares_holdings',     label: 'iShares holdings' },
-  { key: 'etf_holdings',         label: 'Vanguard + HSBC holdings' },
-  { key: 'position_snapshot',    label: 'Position snapshot' },
-  { key: 'aggregate_allocation', label: 'Aggregate allocation' },
+  { key: 'ishares_holdings',      label: 'iShares holdings' },
+  { key: 'etf_holdings',          label: 'Vanguard + HSBC holdings' },
+  { key: 'position_snapshot',     label: 'Position snapshot' },
+  { key: 'aggregate_allocation',  label: 'Aggregate allocation' },
+  { key: 'market_cap_enrichment', label: 'Market cap enrichment' },
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ function getState() {
     dimension: p.get('dimension') || 'sector',
     segment:   p.get('segment')   || null,
     date:      p.get('date')      || null,
+    range:     p.get('range')     || '90d',
   };
 }
 
@@ -36,7 +38,18 @@ function pushState(updates) {
   const p = new URLSearchParams({ dimension: s.dimension });
   if (s.segment) p.set('segment', s.segment);
   if (s.date)    p.set('date',    s.date);
+  if (s.range && s.range !== '90d') p.set('range', s.range);
   location.hash = p.toString();
+}
+
+function rangeToDays(range) {
+  if (range === '30d')  return 30;
+  if (range === 'ytd') {
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    return Math.max(7, Math.ceil((now - jan1) / 86400000));
+  }
+  return 90;  // default '90d'
 }
 
 // ── Formatting ────────────────────────────────────────────────────────────────
@@ -174,16 +187,18 @@ function renderDonut(data, segment, onSelect) {
 
 let _driftChart = null;
 
-async function renderDrift(dimension) {
+async function renderDrift(dimension, range) {
   const wrap  = document.getElementById('drift-chart-wrap');
   const empty = document.getElementById('drift-empty');
   const title = document.getElementById('drift-title');
   const dim   = DIMENSIONS.find(d => d.key === dimension) || DIMENSIONS[0];
-  title.textContent = `${dim.label} drift (90d)`;
+  const days  = rangeToDays(range || '90d');
+  const label = range === '30d' ? '30d' : range === 'ytd' ? 'YTD' : '90d';
+  title.textContent = `${dim.label} drift (${label})`;
 
   let ts;
   try {
-    ts = await fetchTimeseries(dimension, 90);
+    ts = await fetchTimeseries(dimension, days);
   } catch (e) {
     return; // silently skip if API fails
   }
@@ -379,8 +394,15 @@ function renderStubBanner(data) {
 
 // ── Full render pipeline ──────────────────────────────────────────────────────
 
+function renderDateRange(activeRange) {
+  document.querySelectorAll('.date-range span[data-range]').forEach(el => {
+    el.classList.toggle('active', el.dataset.range === activeRange ||
+      (!activeRange && el.dataset.range === 'today'));
+  });
+}
+
 async function render() {
-  const { dimension, segment, date } = getState();
+  const { dimension, segment, date, range } = getState();
   try {
     const data = await fetchAllocation(dimension, date);
     if (data.funds        == null) data.funds        = data.rows.length;
@@ -390,11 +412,12 @@ async function render() {
     renderHeader(data);
     renderKPIs(data);
     renderPivots(dimension);
+    renderDateRange(range);
     renderViz(data, segment);
     await renderDrill(data, segment);
     renderTable(data);
     renderStubBanner(data);
-    renderDrift(dimension);  // async, fires and forgets — won't block UI
+    renderDrift(dimension, range);  // async, fires and forgets — won't block UI
   } catch (err) {
     console.error('Render failed:', err);
     const sub = document.getElementById('header-subtitle');
@@ -479,6 +502,14 @@ document.getElementById('drill-close').addEventListener('click', () => {
 });
 
 window.addEventListener('hashchange', render);
+
+// Date range buttons
+document.querySelectorAll('.date-range span[data-range]').forEach(el => {
+  el.addEventListener('click', () => {
+    const map = { today: '30d', '1m': '90d', ytd: 'ytd' };
+    pushState({ range: map[el.dataset.range] || '90d', segment: null });
+  });
+});
 
 // No external custom-element dependencies — render immediately.
 render();

@@ -40,6 +40,7 @@ def start() -> None:
         aggregate_allocation,
         etf_holdings,
         ishares_holdings,
+        market_cap_enrichment,
         position_snapshot,
     )
 
@@ -64,13 +65,27 @@ def start() -> None:
         id="aggregate_allocation", replace_existing=True,
     )
 
+    # Market cap enrichment runs weekly on Sunday at job_time_market_cap.
+    mc_h, mc_m = (0, 0)
+    try:
+        mc_h, mc_m = (int(x) for x in settings.job_time_market_cap.split(":"))
+    except Exception:
+        pass
+    scheduler.add_job(
+        market_cap_enrichment.run,
+        CronTrigger(day_of_week="sun", hour=mc_h, minute=mc_m),
+        id="market_cap_enrichment", replace_existing=True,
+    )
+
     scheduler.start()
     log.info(
-        "Scheduler started — position_snapshot@%s  ishares@%s  etf@%s  aggregate@%s",
+        "Scheduler started — position_snapshot@%s  ishares@%s  etf@%s  "
+        "aggregate@%s  market_cap@sun%s",
         settings.snapshot_local_time,
         settings.job_time_ishares,
         settings.job_time_etf,
         settings.job_time_aggregate,
+        settings.job_time_market_cap,
     )
 
 
