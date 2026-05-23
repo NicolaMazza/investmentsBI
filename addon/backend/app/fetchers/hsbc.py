@@ -45,6 +45,31 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _read_excel(raw: bytes) -> pd.DataFrame:
+    """Read an Excel file, handling both .xlsx (ZIP) and .xls (binary OLE2) formats.
+
+    HSBC serves their holdings file as old-format .xls despite the URL suggesting
+    XLSX.  We detect the format from the magic bytes rather than trusting the
+    Content-Type or file extension.
+    """
+    buf = io.BytesIO(raw)
+    # XLSX files are ZIP archives; magic bytes are PK\\x03\\x04
+    if raw[:4] == b"PK\x03\x04":
+        return pd.read_excel(buf, engine="openpyxl")
+    # Old binary XLS (OLE2 compound document); magic bytes are D0 CF 11 E0
+    try:
+        buf.seek(0)
+        return pd.read_excel(buf, engine="xlrd")
+    except Exception as xlrd_err:
+        log.debug("xlrd failed (%s), trying HTML fallback", xlrd_err)
+    # Last resort: some issuers serve an HTML table with an .xls extension
+    buf.seek(0)
+    tables = pd.read_html(buf)
+    if tables:
+        return tables[0]
+    raise ValueError("Could not parse HSBC file as XLSX, XLS, or HTML")
+
+
 @register("hsbc_xlsx")
 class HsbcFetcher(BaseFetcher):
     def fetch(self, product: "Product") -> list[NormalizedHolding]:
@@ -56,7 +81,7 @@ class HsbcFetcher(BaseFetcher):
             )
 
         raw = fetch_with_cache(product.source_url)
-        df = pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+        df = _read_excel(raw)
         df.columns = df.columns.str.strip()
         log.debug("HSBC %s columns: %s", product.isin, df.columns.tolist())
 

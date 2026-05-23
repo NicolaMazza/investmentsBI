@@ -137,37 +137,52 @@ class VanguardFetcher(BaseFetcher):
 
         page.goto(page_url, wait_until="domcontentloaded", timeout=_PAGE_TIMEOUT)
 
-        # Dismiss professional investor / cookie / terms popups if present.
+        # Dismiss cookie banners and professional-investor confirmation modals.
+        # Run multiple passes — some sites show a cookie banner then a second modal.
         _dismiss_popups(page)
 
-        # Wait until the Holdings Details section is visible.
-        try:
-            page.wait_for_selector(
-                "text=Holdings details",
-                timeout=_PAGE_TIMEOUT,
-                state="visible",
-            )
-        except PWTimeout:
+        # Scroll down gradually to trigger lazy-loaded sections.
+        for _ in range(6):
+            page.evaluate("window.scrollBy(0, window.innerHeight * 0.8)")
+            page.wait_for_timeout(600)
+
+        # Scroll back to top so Holdings section selector can find the element.
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(500)
+
+        # Wait for the Holdings section — try several text variants.
+        holdings_found = False
+        for selector in [
+            "text=/holdings details/i",
+            "text=/holdings/i",
+            "text=/portfolio holdings/i",
+        ]:
+            try:
+                page.wait_for_selector(selector, timeout=15_000, state="visible")
+                holdings_found = True
+                log.debug("Vanguard %s: found section via selector '%s'", isin, selector)
+                break
+            except PWTimeout:
+                pass
+
+        if not holdings_found:
             log.warning(
-                "Vanguard %s: 'Holdings details' not found after %ds — "
-                "proceeding anyway",
-                isin, _PAGE_TIMEOUT // 1000,
+                "Vanguard %s: no holdings section found — attempting download anyway",
+                isin,
             )
 
-        # Scroll the Holdings section into view and click its Download button.
-        # There are multiple Download buttons on the page; we want the one
-        # associated with Holdings Details, which is the last one rendered.
         with tempfile.TemporaryDirectory() as tmpdir:
             page.context.set_default_timeout(_DOWNLOAD_TIMEOUT)
 
             try:
                 with page.expect_download(timeout=_DOWNLOAD_TIMEOUT) as dl_info:
-                    _click_holdings_download(page)
+                    result = _click_holdings_download(page)
+                    log.debug("Vanguard %s: click result: %s", isin, result)
             except PWTimeout:
                 raise RuntimeError(
                     f"Vanguard {isin}: download did not start within "
-                    f"{_DOWNLOAD_TIMEOUT // 1000}s — the page structure may "
-                    "have changed; check the Holdings Details section manually."
+                    f"{_DOWNLOAD_TIMEOUT // 1000}s. "
+                    "Check add-on logs for the list of buttons found on the page."
                 )
 
             download = dl_info.value
@@ -278,69 +293,108 @@ class VanguardFetcher(BaseFetcher):
 # ── page helpers ──────────────────────────────────────────────────────────────
 
 def _dismiss_popups(page: object) -> None:  # type: ignore[override]
-    """Click through any professional-investor / cookie / terms modals."""
+    """Click through cookie banners and professional-investor confirmation modals.
+
+    Runs up to 3 passes so that sequential popups (e.g. cookie banner → PI
+    declaration) are each dismissed in turn.
+    """
     from playwright.sync_api import Page, TimeoutError as PWTimeout
 
     assert isinstance(page, Page)
 
+    # Ordered by likelihood — Vanguard professional pages show a cookie banner
+    # first, then a "professional investors only" confirmation modal.
     popup_selectors = [
-        # Vanguard UK professional investor confirmation
+        # Cookie / GDPR banners
+        "button:has-text('Accept all')",
+        "button:has-text('Accept cookies')",
+        "button:has-text('Accept')",
+        # Vanguard UK professional investor gate
         "button:has-text('I understand')",
         "button:has-text('I confirm')",
         "button:has-text('Confirm')",
-        "button:has-text('Accept all')",
-        "button:has-text('Accept cookies')",
-        # Generic GDPR / cookie banners
+        "button:has-text('I am a professional')",
+        "button:has-text('Yes, I am a professional')",
+        "button:has-text('Continue')",
+        "button:has-text('Proceed')",
+        # Generic fallbacks
         "[id*='accept'] button",
         "[class*='accept'] button",
+        "[class*='cookie'] button",
     ]
-    for sel in popup_selectors:
-        try:
-            btn = page.wait_for_selector(sel, timeout=3_000, state="visible")
-            if btn:
-                btn.click()
-                log.debug("Dismissed popup: %s", sel)
-        except PWTimeout:
-            pass  # Not present — continue
+
+    for _pass in range(3):
+        dismissed = False
+        for sel in popup_selectors:
+            try:
+                btn = page.wait_for_selector(sel, timeout=3_000, state="visible")
+                if btn:
+                    btn.click()
+                    page.wait_for_timeout(800)
+                    log.debug("Dismissed popup: %s", sel)
+                    dismissed = True
+                    break
+            except PWTimeout:
+                pass
+        if not dismissed:
+            break  # No more popups
 
 
-def _click_holdings_download(page: object) -> None:  # type: ignore[override]
+def _click_holdings_download(page: object) -> str:  # type: ignore[override]
     """Click the Download button in the Holdings Details section.
 
-    The page has several Download buttons (market allocation, holdings, etc.).
-    We want the one whose nearest section/container heading mentions 'holdings'.
-    Fallback: the last Download button on the page (holdings is always last).
+    Returns a debug string describing which button was clicked (or what was
+    found on the page) — logged at DEBUG level by the caller.
     """
     from playwright.sync_api import Page
 
     assert isinstance(page, Page)
 
-    # Strategy 1: find a button/link whose parent section contains "Holdings"
-    found = page.evaluate("""() => {
-        const buttons = [...document.querySelectorAll('button, a')];
-        const dlBtns = buttons.filter(b =>
-            b.innerText.trim().toLowerCase() === 'download'
-        );
+    result: str = page.evaluate("""() => {
+        // Collect all clickable elements whose visible text includes 'download'
+        const all = [...document.querySelectorAll('button, a, [role="button"]')];
+        const dlBtns = all.filter(b => {
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return txt.includes('download');
+        });
+
+        // Log every candidate for debugging
+        const summary = dlBtns.map((b, i) => {
+            const s = b.closest('section, article, [class*="panel"], [class*="card"], [class*="module"]');
+            return `[${i}] text="${(b.innerText||'').trim().substring(0,40)}" section="${(s?.className||'').substring(0,60)}"`;
+        }).join(' | ');
+
+        if (dlBtns.length === 0) {
+            // Report all button texts to help diagnose the page structure
+            const allTxt = all.map(b => (b.innerText||b.textContent||'').trim())
+                              .filter(t => t.length > 0 && t.length < 40)
+                              .slice(0, 30);
+            return `NO DOWNLOAD BUTTONS FOUND. All button texts: ${JSON.stringify(allTxt)}`;
+        }
+
+        // Strategy 1: find the button whose nearest container mentions 'holdings'
         for (const btn of dlBtns) {
-            const section = btn.closest('section, article, div[class*="panel"], div[class*="card"], div[class*="holdings"]');
-            if (section && /holdings/i.test(section.innerText)) {
-                btn.scrollIntoView();
-                btn.click();
-                return true;
+            const section = btn.closest('section, article, div');
+            if (section) {
+                const txt = (section.innerText || section.textContent || '');
+                if (/holdings/i.test(txt)) {
+                    btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                    btn.click();
+                    return `clicked holdings-section button. Candidates: ${summary}`;
+                }
             }
         }
-        // Fallback: last Download button on page (Holdings Details is last)
-        if (dlBtns.length > 0) {
-            const last = dlBtns[dlBtns.length - 1];
-            last.scrollIntoView();
-            last.click();
-            return true;
-        }
-        return false;
+
+        // Strategy 2: last Download button (Holdings Details is rendered last)
+        const last = dlBtns[dlBtns.length - 1];
+        last.scrollIntoView({ behavior: 'instant', block: 'center' });
+        last.click();
+        return `clicked last button (fallback). Candidates: ${summary}`;
     }""")
 
-    if not found:
+    if result.startswith("NO DOWNLOAD BUTTONS FOUND"):
         raise RuntimeError(
-            "Could not find a Download button on the Vanguard holdings page. "
-            "The page structure may have changed."
+            f"Could not find a Download button on the Vanguard page. {result}"
         )
+
+    return result
