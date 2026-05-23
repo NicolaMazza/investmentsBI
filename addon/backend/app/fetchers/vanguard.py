@@ -196,26 +196,49 @@ class VanguardFetcher(BaseFetcher):
     def _parse_xlsx(self, isin: str, raw: bytes) -> list[NormalizedHolding]:
         buf = io.BytesIO(raw)
 
-        # Find header row: scan for the cell containing "holding name".
-        probe = pd.read_excel(buf, header=None, engine="openpyxl")
+        # Vanguard workbooks are multi-sheet: sheet 1 contains only download
+        # metadata, holdings are on a later sheet.  Scan all sheets for the
+        # one that contains a cell with "holding name".
+        xl = pd.ExcelFile(buf, engine="openpyxl")
+        log.debug("Vanguard %s: sheets in workbook: %s", isin, xl.sheet_names)
+
         header_row: int | None = None
-        for idx, row in probe.iterrows():
-            for cell in row.values:
-                if isinstance(cell, str) and "holding name" in cell.lower():
-                    header_row = int(str(idx))
+        target_sheet: str | int | None = None
+
+        for sheet_name in xl.sheet_names:
+            probe = xl.parse(sheet_name, header=None)
+            for idx, row in probe.iterrows():
+                for cell in row.values:
+                    if isinstance(cell, str) and "holding name" in cell.lower():
+                        header_row = int(str(idx))
+                        target_sheet = sheet_name
+                        break
+                if header_row is not None:
                     break
             if header_row is not None:
+                log.debug(
+                    "Vanguard %s: found header row %d on sheet '%s'",
+                    isin, header_row, target_sheet,
+                )
                 break
 
-        if header_row is None:
+        if header_row is None or target_sheet is None:
+            # Report what was found on each sheet to aid debugging.
+            sheet_previews = []
+            for sn in xl.sheet_names:
+                try:
+                    first = xl.parse(sn, header=None).iloc[0].tolist()
+                except Exception:
+                    first = ["<empty>"]
+                sheet_previews.append(f"  {sn!r}: {first}")
             raise ValueError(
                 f"Vanguard XLSX for {isin}: could not find header row "
-                "(expected a cell containing 'Holding name').  "
-                f"First row: {probe.iloc[0].tolist()}"
+                "(expected a cell containing 'Holding name') on any sheet.\n"
+                + "\n".join(sheet_previews)
             )
 
         buf.seek(0)
-        df = pd.read_excel(buf, header=header_row, engine="openpyxl")
+        df = pd.read_excel(buf, sheet_name=target_sheet, header=header_row, engine="openpyxl")
         df.columns = df.columns.str.strip()
         df = df.dropna(how="all")
         log.debug("Vanguard %s columns: %s", isin, df.columns.tolist())

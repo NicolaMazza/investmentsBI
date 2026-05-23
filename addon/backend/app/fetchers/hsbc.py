@@ -45,29 +45,56 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _read_excel(raw: bytes) -> pd.DataFrame:
-    """Read an Excel file, handling both .xlsx (ZIP) and .xls (binary OLE2) formats.
+def _detect_engine(raw: bytes) -> str:
+    """Return the pandas Excel engine to use based on file magic bytes."""
+    return "openpyxl" if raw[:4] == b"PK\x03\x04" else "xlrd"
 
-    HSBC serves their holdings file as old-format .xls despite the URL suggesting
-    XLSX.  We detect the format from the magic bytes rather than trusting the
-    Content-Type or file extension.
+
+def _read_excel(raw: bytes) -> pd.DataFrame:
+    """Read an HSBC holdings file, scanning for the real header row.
+
+    HSBC prepends several metadata rows before the column headers.  We probe
+    without a header first, locate the row that contains 'SecurityName' or
+    'ISIN', then re-read with that row as the header.
+
+    Handles both .xlsx (ZIP/openpyxl) and .xls (binary OLE2/xlrd) formats.
     """
+    engine = _detect_engine(raw)
+    log.debug("HSBC: detected engine=%s (magic=%s)", engine, raw[:4].hex())
+
     buf = io.BytesIO(raw)
-    # XLSX files are ZIP archives; magic bytes are PK\\x03\\x04
-    if raw[:4] == b"PK\x03\x04":
-        return pd.read_excel(buf, engine="openpyxl")
-    # Old binary XLS (OLE2 compound document); magic bytes are D0 CF 11 E0
-    try:
-        buf.seek(0)
-        return pd.read_excel(buf, engine="xlrd")
-    except Exception as xlrd_err:
-        log.debug("xlrd failed (%s), trying HTML fallback", xlrd_err)
-    # Last resort: some issuers serve an HTML table with an .xls extension
+    probe = pd.read_excel(buf, header=None, engine=engine)
+
+    # Find the header row: look for a cell whose value is one of the known
+    # HSBC column names (case-insensitive).
+    _HEADER_KEYWORDS = {"securityname", "isin", "security name"}
+    header_row: int | None = None
+    for idx, row in probe.iterrows():
+        for cell in row.values:
+            if isinstance(cell, str) and cell.strip().lower() in _HEADER_KEYWORDS:
+                header_row = int(str(idx))
+                break
+        if header_row is not None:
+            break
+
+    if header_row is None:
+        # Last resort: HTML-embedded-as-XLS
+        try:
+            buf.seek(0)
+            tables = pd.read_html(buf)
+            if tables:
+                log.debug("HSBC: falling back to HTML parser")
+                return tables[0]
+        except Exception:
+            pass
+        raise ValueError(
+            f"HSBC: could not find header row (looked for {_HEADER_KEYWORDS}). "
+            f"First row: {probe.iloc[0].tolist()}"
+        )
+
+    log.debug("HSBC: header row at index %d", header_row)
     buf.seek(0)
-    tables = pd.read_html(buf)
-    if tables:
-        return tables[0]
-    raise ValueError("Could not parse HSBC file as XLSX, XLS, or HTML")
+    return pd.read_excel(buf, header=header_row, engine=engine)
 
 
 @register("hsbc_xlsx")
