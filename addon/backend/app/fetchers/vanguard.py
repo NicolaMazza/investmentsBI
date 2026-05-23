@@ -399,52 +399,64 @@ def _click_holdings_download(page: object) -> str:  # type: ignore[override]
     assert isinstance(page, Page)
 
     result: str = page.evaluate("""() => {
-        // Collect all clickable elements whose visible text includes 'download'
+        // Build a summary of all Download candidates for debug logging.
         const all = [...document.querySelectorAll('button, a, [role="button"]')];
         const dlBtns = all.filter(b => {
             const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
             return txt.includes('download');
         });
-
-        // Log every candidate for debugging
-        const summary = dlBtns.map((b, i) => {
-            const s = b.closest('section, article, [class*="panel"], [class*="card"], [class*="module"]');
-            return `[${i}] text="${(b.innerText||'').trim().substring(0,40)}" section="${(s?.className||'').substring(0,60)}"`;
-        }).join(' | ');
+        const summary = dlBtns.map((b, i) =>
+            `[${i}] text="${(b.innerText||'').trim().substring(0,50)}"`
+        ).join(' | ');
 
         if (dlBtns.length === 0) {
-            // Report all button texts to help diagnose the page structure
             const allTxt = all.map(b => (b.innerText||b.textContent||'').trim())
                               .filter(t => t.length > 0 && t.length < 40)
                               .slice(0, 30);
-            return `NO DOWNLOAD BUTTONS FOUND. All button texts: ${JSON.stringify(allTxt)}`;
+            return `NO DOWNLOAD BUTTONS FOUND. All texts: ${JSON.stringify(allTxt)}`;
         }
 
-        // Exclude price-history download buttons (text matches 'download NNN prices').
-        const holdingsBtns = dlBtns.filter(b => {
-            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-            return !(/download\\s+\\d+\\s+prices?/i.test(txt)) && !txt.includes('price');
-        });
-        const candidates = holdingsBtns.length > 0 ? holdingsBtns : dlBtns;
-
-        // Strategy 1: find the button whose nearest container mentions 'holdings'
-        for (const btn of candidates) {
-            const section = btn.closest('section, article, div');
-            if (section) {
-                const txt = (section.innerText || section.textContent || '');
-                if (/holdings/i.test(txt)) {
-                    btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                    btn.click();
-                    return `clicked holdings-section button. Candidates: ${summary}`;
-                }
+        // ── Strategy 1 ─────────────────────────────────────────────────────
+        // Find every element whose text is exactly "Holdings details", then walk
+        // UP the DOM until we find a container that owns a Download button.
+        // This anchors us to the right section regardless of CSS class names.
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const holdingsHeadings = [];
+        while (walker.nextNode()) {
+            if (walker.currentNode.textContent.trim().toLowerCase() === 'holdings details') {
+                holdingsHeadings.push(walker.currentNode.parentElement);
             }
         }
 
-        // Strategy 2: first non-price Download button
-        const first = candidates[0];
-        first.scrollIntoView({ behavior: 'instant', block: 'center' });
-        first.click();
-        return `clicked first non-price button (fallback). Candidates: ${summary}`;
+        for (const heading of holdingsHeadings) {
+            let container = heading.parentElement;
+            for (let depth = 0; depth < 20 && container; depth++) {
+                const btns = [...container.querySelectorAll('button, a, [role="button"]')]
+                    .filter(b => {
+                        const t = (b.innerText||b.textContent||'').trim().toLowerCase();
+                        // exact "download" or starts with "download holdings"; exclude price buttons
+                        return (t === 'download' || t.startsWith('download holdings'))
+                            && !(/download\\s+\\d+\\s+prices?/i.test(t));
+                    });
+                if (btns.length > 0) {
+                    btns[0].scrollIntoView({ behavior: 'instant', block: 'center' });
+                    btns[0].click();
+                    return `S1: clicked "${(btns[0].innerText||'').trim()}" at depth ${depth} from Holdings heading. ${summary}`;
+                }
+                container = container.parentElement;
+            }
+        }
+
+        // ── Strategy 2 ─────────────────────────────────────────────────────
+        // No heading anchor found.  Filter out price-history buttons, pick first.
+        const holdingsBtns = dlBtns.filter(b => {
+            const t = (b.innerText||b.textContent||'').trim().toLowerCase();
+            return !(/download\\s+\\d+\\s+prices?/i.test(t)) && !t.includes('price');
+        });
+        const pick = holdingsBtns.length > 0 ? holdingsBtns[0] : dlBtns[0];
+        pick.scrollIntoView({ behavior: 'instant', block: 'center' });
+        pick.click();
+        return `S2 fallback: clicked "${(pick.innerText||'').trim()}". ${summary}`;
     }""")
 
     if result.startswith("NO DOWNLOAD BUTTONS FOUND"):
