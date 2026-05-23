@@ -10,6 +10,11 @@ COPY backend/ .
 
 RUN pip install --no-cache-dir -e .
 
+# Playwright + headless Chromium — used by the Vanguard holdings fetcher.
+# Chromium binaries add ~290 MB; --with-deps installs required system libs.
+RUN pip install --no-cache-dir playwright \
+    && playwright install --with-deps chromium
+
 RUN mkdir -p /data/cache
 
 COPY run.sh /run.sh

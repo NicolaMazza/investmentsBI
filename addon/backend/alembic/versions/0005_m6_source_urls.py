@@ -23,11 +23,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # ── 1. HSBC source URL ────────────────────────────────────────────────────
+    # ── 1. HSBC source URL (direct XLSX download) ─────────────────────────────
     op.execute("""
         UPDATE product
         SET source_url = 'https://www.assetmanagement.hsbc.co.uk/api/v1/download/document/ie000kcs7j59/gb/en/holdings'
         WHERE isin = 'IE000KCS7J59'
+          AND source_url IS NULL
+    """)
+
+    # ── 2. Vanguard source URL (product page — Playwright drives the download) ─
+    # source_url is the investor page URL, not a direct file URL.
+    # The VanguardFetcher uses Playwright to navigate here and click Download.
+    op.execute("""
+        UPDATE product
+        SET source_url = 'https://www.vanguardinvestor.co.uk/investments/vanguard-ftse-developed-europe-ucits-etf-eur-accumulating'
+        WHERE isin = 'IE00BK5BQX27'
           AND source_url IS NULL
     """)
 
@@ -63,5 +73,5 @@ def downgrade() -> None:
     op.execute("""
         UPDATE product
         SET source_url = NULL
-        WHERE isin = 'IE000KCS7J59'
+        WHERE isin IN ('IE000KCS7J59', 'IE00BK5BQX27')
     """)
