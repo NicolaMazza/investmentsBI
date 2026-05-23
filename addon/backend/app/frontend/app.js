@@ -339,6 +339,14 @@ async function renderAdmin() {
             <button class="tonal-btn" onclick="triggerJob('${j.key}')">Run now</button>
           </div>`).join('')}
         <div class="job-result" id="job-result"></div>
+      </div>
+      <div class="admin-section">
+        <h3>Test data</h3>
+        <div class="admin-row">
+          <span>Seed Δ 30d data (copies today → 32 days ago)</span>
+          <button class="tonal-btn" onclick="triggerBackfill(32)">Seed</button>
+        </div>
+        <div class="job-result" id="backfill-result"></div>
       </div>`;
   } catch (err) {
     el.textContent = 'Could not reach API.';
@@ -352,6 +360,19 @@ async function triggerJob(job) {
     const res  = await fetch(`api/admin/refresh?job=${job}`, { method: 'POST' });
     const data = await res.json();
     el.textContent = `✓ ${data.job} accepted — check DB in ~20s`;
+  } catch (err) {
+    el.textContent = `✗ ${err.message}`;
+  }
+}
+
+async function triggerBackfill(days) {
+  const el = document.getElementById('backfill-result');
+  el.textContent = 'Seeding…';
+  try {
+    const res  = await fetch(`api/admin/backfill?days=${days}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    el.textContent = `✓ Wrote ${data.rows_written} rows for ${data.target_date} — reload to see Δ 30d`;
   } catch (err) {
     el.textContent = `✗ ${err.message}`;
   }
