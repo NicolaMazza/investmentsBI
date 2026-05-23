@@ -20,21 +20,17 @@ Docker requirement
 The Dockerfile installs Playwright and its Chromium binaries (~290 MB):
   RUN pip install playwright && playwright install --with-deps chromium
 
-Column mapping (Vanguard FTSE Developed Europe UCITS ETF)
----------------------------------------------------------
-    "Holding name"           → constituent_name
-    "ISIN"                   → constituent_isin  (preferred)
-    "SEDOL"                  → constituent_isin  (fallback, with warning)
-    "% of fund net assets"   → weight_pct  (already in %)
-    "Country of domicile"    → country_listing
-    "Currency"               → native_currency
-    "Market value (...)"     → market_value_native
-    "Quantity" / "Shares"    → shares
-
-Sector note
------------
-Vanguard UCITS XLSX files do not include a sector column.  Constituents will
-show as 'Unknown' for the sector dimension.
+Column mapping (Vanguard FTSE Developed Europe UCITS ETF, IE00BK5BQX27)
+------------------------------------------------------------------------
+    "Holding name"        → constituent_name
+    "ISIN"                → constituent_isin  (preferred)
+    "SEDOL"               → constituent_isin  (fallback, with warning)
+    "Ticker"              → constituent_isin  (last-resort fallback)
+    "% of market value"   → weight_pct  (stored as "3.8514%", % stripped)
+    "Region"              → country_listing   (ISO-2 country code, e.g. "NL")
+    "Market value"        → market_value_native  (€-prefixed, symbol stripped)
+    "Shares"              → shares
+    "Sector"              → sector  (GICS sector string, populated when present)
 """
 from __future__ import annotations
 
@@ -59,14 +55,16 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_WEIGHT_COLS   = ["% of fund net assets", "Percentage of fund", "Weighting",
-                  "Weighting (%)", "% of Fund", "% Net Assets"]
+_WEIGHT_COLS   = ["% of market value", "% of fund net assets", "Percentage of fund",
+                  "Weighting", "Weighting (%)", "% of Fund", "% Net Assets"]
 _NAME_COLS     = ["Holding name", "Name", "Security name", "Stock name"]
-_COUNTRY_COLS  = ["Country of domicile", "Country of risk", "Country", "Domicile"]
+_COUNTRY_COLS  = ["Region", "Country of domicile", "Country of risk", "Country", "Domicile"]
 _CURRENCY_COLS = ["Currency", "Local currency", "Dealing currency", "Ccy"]
-_SHARES_COLS   = ["Quantity", "Number of shares", "Shares", "Nominal"]
-_MV_COLS       = ["Market value (local currency)", "Market value (EUR)",
-                  "Market value (GBP)", "Market value", "Market Value"]
+_SHARES_COLS   = ["Shares", "Quantity", "Number of shares", "Nominal"]
+_MV_COLS       = ["Market value", "Market value (local currency)", "Market value (EUR)",
+                  "Market value (GBP)", "Market Value"]
+_SECTOR_COLS   = ["Sector", "GICS Sector", "ICB Sector", "Industry"]
+_TICKER_COLS   = ["Ticker", "Ticker symbol", "Bloomberg ticker"]
 
 # How long (ms) to wait for the Holdings section and the download to complete.
 _PAGE_TIMEOUT     = 60_000
@@ -249,6 +247,7 @@ class VanguardFetcher(BaseFetcher):
         currency_col = _pick(df, _CURRENCY_COLS)
         shares_col   = _pick(df, _SHARES_COLS)
         mv_col       = _pick(df, _MV_COLS)
+        sector_col   = _pick(df, _SECTOR_COLS)
 
         if weight_col is None:
             raise ValueError(
@@ -256,6 +255,7 @@ class VanguardFetcher(BaseFetcher):
                 f"Columns: {df.columns.tolist()}"
             )
 
+        # Prefer ISIN, fall back to SEDOL, then Ticker.
         if "ISIN" in df.columns:
             id_col = "ISIN"
         elif "SEDOL" in df.columns:
@@ -266,10 +266,19 @@ class VanguardFetcher(BaseFetcher):
                 isin,
             )
         else:
-            raise ValueError(
-                f"Vanguard XLSX for {isin}: no ISIN or SEDOL column. "
-                f"Columns: {df.columns.tolist()}"
-            )
+            ticker_col = _pick(df, _TICKER_COLS)
+            if ticker_col:
+                id_col = ticker_col
+                log.warning(
+                    "Vanguard %s: no ISIN or SEDOL column — using Ticker '%s' as "
+                    "constituent identifier; look-through joins will be by ticker.",
+                    isin, ticker_col,
+                )
+            else:
+                raise ValueError(
+                    f"Vanguard XLSX for {isin}: no ISIN, SEDOL, or Ticker column. "
+                    f"Columns: {df.columns.tolist()}"
+                )
 
         df = df.dropna(subset=[id_col])
         df = df[~df[id_col].astype(str).str.strip().isin(["", "nan", "None"])]
@@ -278,7 +287,16 @@ class VanguardFetcher(BaseFetcher):
             if val is None:
                 return None
             try:
-                result = float(str(val).replace(",", "").replace("%", "").strip())
+                # Strip currency symbols (€, £, $, etc.) and percent signs
+                cleaned = (
+                    str(val)
+                    .replace(",", "")
+                    .replace("%", "")
+                    .strip()
+                    .lstrip("€£$¥₹")
+                    .strip()
+                )
+                result = float(cleaned)
                 return result or None
             except (ValueError, TypeError):
                 return None
@@ -293,6 +311,12 @@ class VanguardFetcher(BaseFetcher):
             if name in ("nan", "None", ""):
                 name = None
 
+            sector: str | None = None
+            if sector_col:
+                raw_sector = str(row[sector_col]).strip()
+                if raw_sector not in ("nan", "None", ""):
+                    sector = raw_sector
+
             holdings.append(
                 NormalizedHolding(
                     constituent_isin=identifier,
@@ -306,6 +330,7 @@ class VanguardFetcher(BaseFetcher):
                     ),
                     market_value_native=_safe_float(row[mv_col]) if mv_col else None,
                     shares=_safe_float(row[shares_col]) if shares_col else None,
+                    sector=sector,
                 )
             )
 
