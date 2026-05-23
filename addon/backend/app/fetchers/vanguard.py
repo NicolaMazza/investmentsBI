@@ -283,6 +283,18 @@ class VanguardFetcher(BaseFetcher):
         df = df.dropna(subset=[id_col])
         df = df[~df[id_col].astype(str).str.strip().isin(["", "nan", "None"])]
 
+        # Drop footer/disclaimer rows: valid tickers/ISINs are ≤20 chars and
+        # contain no spaces or HTML entities.
+        def _looks_like_identifier(val: str) -> bool:
+            v = val.strip()
+            return len(v) <= 20 and " " not in v and "&" not in v
+
+        before = len(df)
+        df = df[df[id_col].astype(str).apply(_looks_like_identifier)]
+        dropped = before - len(df)
+        if dropped:
+            log.debug("Vanguard %s: dropped %d footer/junk rows", isin, dropped)
+
         def _safe_float(val: object) -> float | None:
             if val is None:
                 return None
@@ -334,8 +346,45 @@ class VanguardFetcher(BaseFetcher):
                 )
             )
 
-        log.info("Vanguard %s: parsed %d holdings", isin, len(holdings))
-        return holdings
+        # Deduplicate by constituent_isin (e.g. SAN appears twice for dual
+        # listings in pan-European indices).  Sum weights; keep first row's
+        # metadata for name/sector/country.
+        seen: dict[str, NormalizedHolding] = {}
+        for h in holdings:
+            if h.constituent_isin in seen:
+                prev = seen[h.constituent_isin]
+                seen[h.constituent_isin] = NormalizedHolding(
+                    constituent_isin=prev.constituent_isin,
+                    constituent_name=prev.constituent_name,
+                    weight_pct=prev.weight_pct + h.weight_pct,
+                    country_listing=prev.country_listing,
+                    native_currency=prev.native_currency,
+                    market_value_native=(
+                        (prev.market_value_native or 0) + (h.market_value_native or 0)
+                        or None
+                    ),
+                    shares=(
+                        (prev.shares or 0) + (h.shares or 0)
+                        or None
+                    ),
+                    sector=prev.sector,
+                )
+                log.debug(
+                    "Vanguard %s: merged duplicate %s (weight now %.4f%%)",
+                    isin, h.constituent_isin, seen[h.constituent_isin].weight_pct,
+                )
+            else:
+                seen[h.constituent_isin] = h
+
+        deduped = list(seen.values())
+        if len(deduped) < len(holdings):
+            log.info(
+                "Vanguard %s: deduplicated %d → %d holdings",
+                isin, len(holdings), len(deduped),
+            )
+
+        log.info("Vanguard %s: parsed %d holdings", isin, len(deduped))
+        return deduped
 
 
 # ── page helpers ──────────────────────────────────────────────────────────────
