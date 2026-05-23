@@ -395,8 +395,15 @@ def _click_holdings_download(page: object) -> str:  # type: ignore[override]
             return `NO DOWNLOAD BUTTONS FOUND. All button texts: ${JSON.stringify(allTxt)}`;
         }
 
+        // Exclude price-history download buttons (text matches 'download NNN prices').
+        const holdingsBtns = dlBtns.filter(b => {
+            const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            return !(/download\\s+\\d+\\s+prices?/i.test(txt)) && !txt.includes('price');
+        });
+        const candidates = holdingsBtns.length > 0 ? holdingsBtns : dlBtns;
+
         // Strategy 1: find the button whose nearest container mentions 'holdings'
-        for (const btn of dlBtns) {
+        for (const btn of candidates) {
             const section = btn.closest('section, article, div');
             if (section) {
                 const txt = (section.innerText || section.textContent || '');
@@ -408,11 +415,11 @@ def _click_holdings_download(page: object) -> str:  # type: ignore[override]
             }
         }
 
-        // Strategy 2: last Download button (Holdings Details is rendered last)
-        const last = dlBtns[dlBtns.length - 1];
-        last.scrollIntoView({ behavior: 'instant', block: 'center' });
-        last.click();
-        return `clicked last button (fallback). Candidates: ${summary}`;
+        // Strategy 2: first non-price Download button
+        const first = candidates[0];
+        first.scrollIntoView({ behavior: 'instant', block: 'center' });
+        first.click();
+        return `clicked first non-price button (fallback). Candidates: ${summary}`;
     }""")
 
     if result.startswith("NO DOWNLOAD BUTTONS FOUND"):
