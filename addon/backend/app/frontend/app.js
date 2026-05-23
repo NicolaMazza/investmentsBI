@@ -14,9 +14,10 @@ const DIMENSIONS = [
 ];
 
 const JOBS = [
-  { key: 'ishares_holdings',  label: 'iShares holdings' },
-  { key: 'etf_holdings',      label: 'Vanguard + HSBC holdings' },
-  { key: 'position_snapshot', label: 'Position snapshot' },
+  { key: 'ishares_holdings',     label: 'iShares holdings' },
+  { key: 'etf_holdings',         label: 'Vanguard + HSBC holdings' },
+  { key: 'position_snapshot',    label: 'Position snapshot' },
+  { key: 'aggregate_allocation', label: 'Aggregate allocation' },
 ];
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -86,9 +87,12 @@ function renderHeader(data) {
 
 function renderKPIs(data) {
   document.getElementById('kpi-total').textContent = fmtEUR(data.total_eur);
-  document.getElementById('kpi-funds').textContent = data.funds ?? '—';
+  document.getElementById('kpi-funds').textContent = data.funds        ?? '—';
   document.getElementById('kpi-lookt').textContent = data.look_through ?? '—';
   document.getElementById('kpi-top').textContent   = data.top_single   ?? '—';
+  // Show/hide the top-single KPI card based on availability
+  const topCard = document.getElementById('kpi-top')?.closest('.kpi-card');
+  if (topCard) topCard.hidden = !data.top_single;
 }
 
 // ── Render: pivot pills ───────────────────────────────────────────────────────
@@ -257,17 +261,20 @@ function renderTable(data) {
     <th>${dim.label}</th>
     <th>Value EUR</th>
     <th>Portfolio %</th>
-    <th>Δ 30d</th>
-    <th>Holdings</th>`;
+    <th>Δ 30d</th>`;
 
-  document.getElementById('table-body').innerHTML = data.rows.map(row => `
+  document.getElementById('table-body').innerHTML = data.rows.map(row => {
+    const delta = row.delta_30d != null
+      ? `<span class="${row.delta_30d > 0 ? 'delta-up' : row.delta_30d < 0 ? 'delta-down' : 'muted'}">${row.delta_30d > 0 ? '+' : ''}${row.delta_30d.toFixed(2)}pp</span>`
+      : '<span class="muted">—</span>';
+    return `
     <tr data-segment="${row.label}">
       <td>${row.label}</td>
       <td>${fmtEUR(row.value_eur)}</td>
       <td>${fmtPct(row.weight)}</td>
-      <td class="muted">—</td>
-      <td class="muted">—</td>
-    </tr>`).join('');
+      <td>${delta}</td>
+    </tr>`;
+  }).join('');
 
   document.querySelectorAll('#table-body tr').forEach(tr => {
     tr.addEventListener('click', () => {

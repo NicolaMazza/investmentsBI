@@ -71,7 +71,13 @@ def normalize_currency(raw: str | None) -> str | None:
 def normalize_country(raw: str | None) -> str | None:
     if not raw:
         return None
-    return raw.strip().title() or None
+    v = raw.strip()
+    if not v or v.lower() in ("nan", "none"):
+        return None
+    # 2-letter ISO-3166 alpha-2 codes (e.g. "Nl", "GB", "ch") → uppercase
+    if len(v) == 2 and v.isalpha():
+        return v.upper()
+    return v.title() or None
 
 
 def normalize_sector(raw: str | None) -> str | None:
