@@ -1,0 +1,65 @@
+version: "3.9"
+
+# Local development environment — mirrors the HA add-on without Playwright.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# The backend auto-reloads on every file save (uvicorn --reload + volume mount).
+# Open http://localhost:8000 for the dashboard.
+#
+# First-time DB setup happens automatically on startup (Alembic runs in the
+# backend entrypoint before uvicorn starts).
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       investments_bi
+      POSTGRES_USER:     reporter_rw
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reporter_rw -d investments_bi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: addon/backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./addon/backend:/app          # live code mount — edits reload instantly
+      - ./dev_data:/data              # options.json + file cache
+    ports:
+      - "8000:8000"
+    environment:
+      # These mirror the HA options.json keys (HaOptionsSource reads them too)
+      postgres_host:         db
+      postgres_port:         "5432"
+      postgres_db:           ghostfolio   # not used in dev (no Ghostfolio DB)
+      postgres_db_bi:        investments_bi
+      postgres_user_rw:      reporter_rw
+      postgres_password_rw:  dev
+      postgres_user_ro:      reporter_rw  # same user for dev
+      postgres_password_ro:  dev
+      ghostfolio_user_id:    ""
+      base_currency:         EUR
+      snapshot_local_time:   "00:00"
+      log_level:             DEBUG
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+volumes:
+  pg_data:
