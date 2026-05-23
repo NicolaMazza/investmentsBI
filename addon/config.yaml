@@ -1,5 +1,5 @@
 name: "InvestmentsBI"
-version: "0.1.8"
+version: "0.1.9"
 slug: "investmentsbi"
 description: "Look-through allocation reporting for Ghostfolio portfolios"
 arch: [amd64, aarch64]
@@ -20,6 +20,9 @@ options:
   ghostfolio_user_id: ""
   base_currency: "EUR"
   snapshot_local_time: "00:00"
+  job_time_ishares: "00:05"
+  job_time_etf: "00:10"
+  job_time_aggregate: "00:20"
   log_level: "INFO"
 schema:
   postgres_host: str
@@ -33,4 +36,7 @@ schema:
   ghostfolio_user_id: str
   base_currency: str
   snapshot_local_time: str
+  job_time_ishares: str
+  job_time_etf: str
+  job_time_aggregate: str
   log_level: "list(DEBUG|INFO|WARNING|ERROR)"

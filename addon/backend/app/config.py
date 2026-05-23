@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     # aggregated. Leave empty to aggregate all users (single-user installs).
     ghostfolio_user_id: str = ""
     base_currency: str = "EUR"
-    snapshot_local_time: str = "00:00"
+    snapshot_local_time: str = "00:00"   # position_snapshot fire time
+    job_time_ishares:    str = "00:05"   # ishares_holdings fire time
+    job_time_etf:        str = "00:10"   # etf_holdings fire time (Playwright)
+    job_time_aggregate:  str = "00:20"   # aggregate_allocation fire time
     log_level: str = "INFO"
 
     @property

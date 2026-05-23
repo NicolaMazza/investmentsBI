@@ -70,10 +70,15 @@
     </div>
   </div>
 
-  <!-- ── Drift chart placeholder ─────────────────────────────────────── -->
+  <!-- ── Drift chart ─────────────────────────────────────────────────── -->
   <div class="panel" id="drift-panel" style="margin-bottom:20px;">
-    <div class="panel-title">Allocation drift</div>
-    <div class="drift-placeholder">Historical drift chart — available once daily snapshots accumulate.</div>
+    <div class="panel-title" id="drift-title">Allocation drift</div>
+    <div id="drift-empty" class="drift-placeholder" hidden>
+      No historical data yet — run <strong>Aggregate allocation</strong> daily or use <strong>Seed Δ 30d data</strong> to generate test data.
+    </div>
+    <div id="drift-chart-wrap" style="position:relative; height:220px;">
+      <canvas id="drift-canvas"></canvas>
+    </div>
   </div>
 
   <!-- ── Data table ──────────────────────────────────────────────────── -->

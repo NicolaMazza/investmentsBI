@@ -413,7 +413,9 @@ tbody tr:hover { background: var(--bg-secondary); cursor: pointer; }
 
 .pos  { color: var(--text-success); }
 .neg  { color: var(--text-danger);  }
-.muted{ color: var(--text-secondary);}
+.muted     { color: var(--text-secondary); }
+.delta-up  { color: var(--text-success); font-weight: 500; }
+.delta-down{ color: var(--text-danger);  font-weight: 500; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {

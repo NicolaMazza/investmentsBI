@@ -10,18 +10,17 @@ product      : one bucket per ETF held, no look-through (treemap)
 market_cap   : instrument_reference.market_cap_bucket — disabled until M7
                enrichment job runs; returns stub "Unknown" for all.
 
-Pipeline (sector / country / currency / company)
--------------------------------------------------
-1. Resolve as-of date from position_snapshot.
-2. Load positions for that date with market_value_eur > 0.
-3. For each position ISIN, find the latest product_composition_snapshot.
-4. Distribute market_value_eur across dimension buckets by normalised weight_pct.
-5. Positions with no composition → "Other" bucket.
-6. Falls back to a representative stub when the DB has no position rows.
+Read path
+---------
+1. If portfolio_allocation_snapshot has rows for the requested date, serve
+   them directly (fast path — written nightly by aggregate_allocation job).
+2. Otherwise fall back to on-the-fly computation from raw position and
+   composition tables (slow path — used on first run before any cron fires).
 
-Pipeline (product)
-------------------
-Return positions directly, labelled by product.name — no look-through.
+KPIs
+----
+look_through  : % of portfolio EUR covered by composition data (0–100)
+top_single    : label of the heaviest single constituent (company dimension)
 """
 from __future__ import annotations
 
@@ -35,6 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.reporting import (
+    PortfolioAllocationSnapshot,
     PositionSnapshot,
     Product,
     ProductCompositionSnapshot,
@@ -76,7 +76,7 @@ _STUB_TOTAL_EUR = 95_000.0
 def _stub_response(dimension: str) -> dict:
     total = _STUB_TOTAL_EUR
     rows = [
-        {"label": lbl, "value_eur": round(total * w, 2), "weight": round(w, 4)}
+        {"label": lbl, "value_eur": round(total * w, 2), "weight": round(w, 4), "delta_30d": None}
         for lbl, w in _STUB_SECTORS
     ]
     return {
@@ -144,7 +144,145 @@ def load_composition_map(
     return comp_rows
 
 
-# ── Aggregation logic ─────────────────────────────────────────────────────────
+# ── KPI helpers ───────────────────────────────────────────────────────────────
+
+def _compute_look_through(
+    positions: list[PositionSnapshot],
+    comp_map: dict[str, list[ProductCompositionSnapshot]],
+    total_eur: float,
+) -> Optional[str]:
+    """Return look-through coverage as a '%.0f%%' string, or None."""
+    if total_eur <= 0:
+        return None
+    covered = sum(
+        float(p.market_value_eur)  # type: ignore[arg-type]
+        for p in positions
+        if comp_map.get(p.product_isin)
+    )
+    pct = covered / total_eur * 100
+    return f"{pct:.0f}%"
+
+
+def _compute_top_single(
+    positions: list[PositionSnapshot],
+    comp_map: dict[str, list[ProductCompositionSnapshot]],
+    total_eur: float,
+) -> Optional[str]:
+    """Return '<name> <weight%>' for the heaviest single constituent."""
+    if total_eur <= 0:
+        return None
+    buckets: dict[str, float] = collections.defaultdict(float)
+    for pos in positions:
+        mv = float(pos.market_value_eur)  # type: ignore[arg-type]
+        rows_c = comp_map.get(pos.product_isin, [])
+        if not rows_c:
+            continue
+        weight_sum = sum(float(r.weight_pct) for r in rows_c)
+        if weight_sum <= 0:
+            continue
+        for r in rows_c:
+            name = r.constituent_name or r.constituent_isin or "Unknown"
+            buckets[name] += mv * (float(r.weight_pct) / weight_sum)
+    if not buckets:
+        return None
+    top_name, top_val = max(buckets.items(), key=lambda x: x[1])
+    return f"{top_name} {top_val / total_eur * 100:.1f}%"
+
+
+# ── Delta helpers ─────────────────────────────────────────────────────────────
+
+def _load_delta_map(
+    session: Session,
+    dimension: str,
+    as_of_date: datetime.date,
+    days: int = 30,
+) -> dict[str, float]:
+    """Return {segment_key: weight_pct} from ~`days` ago, or {} if unavailable."""
+    target = as_of_date - datetime.timedelta(days=days)
+    # Find closest available date on or before target.
+    prev_date = session.execute(
+        select(func.max(PortfolioAllocationSnapshot.as_of_date)).where(
+            PortfolioAllocationSnapshot.dimension == dimension,
+            PortfolioAllocationSnapshot.as_of_date <= target,
+        )
+    ).scalar()
+    if prev_date is None:
+        return {}
+    rows = session.execute(
+        select(PortfolioAllocationSnapshot).where(
+            PortfolioAllocationSnapshot.as_of_date == prev_date,
+            PortfolioAllocationSnapshot.dimension == dimension,
+        )
+    ).scalars().all()
+    return {r.segment_key: float(r.weight_pct) for r in rows}
+
+
+# ── Pre-computed fast path ────────────────────────────────────────────────────
+
+def _query_from_precomputed(
+    session: Session,
+    dimension: str,
+    as_of_date: datetime.date,
+) -> Optional[dict]:
+    """Serve from portfolio_allocation_snapshot if available for this date."""
+    rows = session.execute(
+        select(PortfolioAllocationSnapshot).where(
+            PortfolioAllocationSnapshot.as_of_date == as_of_date,
+            PortfolioAllocationSnapshot.dimension == dimension,
+        ).order_by(PortfolioAllocationSnapshot.value_eur.desc())
+    ).scalars().all()
+
+    if not rows:
+        return None
+
+    total_eur = sum(float(r.value_eur) for r in rows)
+    delta_map = _load_delta_map(session, dimension, as_of_date)
+
+    response_rows = []
+    for r in rows:
+        w_now  = float(r.weight_pct)
+        w_prev = delta_map.get(r.segment_key)
+        delta  = round((w_now - w_prev) * 100, 2) if w_prev is not None else None
+        response_rows.append({
+            "label":     r.segment_label,
+            "value_eur": float(r.value_eur),
+            "weight":    round(w_now, 4),
+            "delta_30d": delta,
+        })
+
+    # Cap company to top N + Other
+    if dimension == "company" and len(response_rows) > _TOP_N_COMPANY:
+        top   = response_rows[:_TOP_N_COMPANY]
+        rest  = response_rows[_TOP_N_COMPANY:]
+        rest_val = sum(r["value_eur"] for r in rest)
+        if rest_val > 0.01:
+            top.append({
+                "label":     f"Other ({len(rest)} more)",
+                "value_eur": round(rest_val, 2),
+                "weight":    round(rest_val / total_eur, 4),
+                "delta_30d": None,
+            })
+        response_rows = top
+
+    # KPIs: read from positions for look_through + top_single.
+    positions  = load_positions(session, as_of_date)
+    comp_map   = load_composition_map(session, {p.product_isin for p in positions}, as_of_date)
+    look_through = _compute_look_through(positions, comp_map, total_eur)
+    top_single   = _compute_top_single(positions, comp_map, total_eur)
+
+    return {
+        "as_of_date":   str(as_of_date),
+        "dimension":    dimension,
+        "total_eur":    round(total_eur, 2),
+        "funds":        len(positions),
+        "look_through": look_through,
+        "top_single":   top_single,
+        "stub":         False,
+        "rows":         response_rows,
+    }
+
+
+# ── Aggregation logic (slow / on-the-fly path) ───────────────────────────────
 
 def _query_allocation(
     session: Session,
@@ -156,6 +294,12 @@ def _query_allocation(
     as_of_date = resolve_snapshot_date(session, as_of_date)
     if as_of_date is None:
         return None
+
+    # Fast path: pre-computed rows exist.
+    precomputed = _query_from_precomputed(session, dimension, as_of_date)
+    if precomputed is not None:
+        log.debug("allocation: served from pre-computed snapshot (%s, %s)", dimension, as_of_date)
+        return precomputed
 
     positions = load_positions(session, as_of_date)
     if not positions:
@@ -171,14 +315,14 @@ def _query_allocation(
             p.isin: p.name
             for p in session.execute(select(Product)).scalars().all()
         }
-        buckets: dict[str, float] = collections.defaultdict(float)
+        buckets_p: dict[str, float] = collections.defaultdict(float)
         for pos in positions:
             label = product_names.get(pos.product_isin, pos.product_isin)
-            buckets[label] += float(pos.market_value_eur)  # type: ignore[arg-type]
+            buckets_p[label] += float(pos.market_value_eur)  # type: ignore[arg-type]
 
-        rows = [
-            {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4)}
-            for lbl, v in sorted(buckets.items(), key=lambda x: -x[1])
+        rows_p = [
+            {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4), "delta_30d": None}
+            for lbl, v in sorted(buckets_p.items(), key=lambda x: -x[1])
         ]
         return {
             "as_of_date":   str(as_of_date),
@@ -188,7 +332,7 @@ def _query_allocation(
             "look_through": None,
             "top_single":   None,
             "stub":         False,
-            "rows":         rows,
+            "rows":         rows_p,
         }
 
     # ── look-through dimensions ───────────────────────────────────────────────
@@ -224,8 +368,11 @@ def _query_allocation(
     else:
         sorted_buckets = sorted(buckets_lt.items(), key=lambda x: -x[1])
 
+    look_through = _compute_look_through(positions, comp_map, total_eur)
+    top_single   = _compute_top_single(positions, comp_map, total_eur)
+
     response_rows = [
-        {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4)}
+        {"label": lbl, "value_eur": round(v, 2), "weight": round(v / total_eur, 4), "delta_30d": None}
         for lbl, v in sorted_buckets
         if v > 0.01
     ]
@@ -235,8 +382,8 @@ def _query_allocation(
         "dimension":    dimension,
         "total_eur":    round(total_eur, 2),
         "funds":        len(positions),
-        "look_through": None,
-        "top_single":   None,
+        "look_through": look_through,
+        "top_single":   top_single,
         "stub":         False,
         "rows":         response_rows,
     }
