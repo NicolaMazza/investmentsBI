@@ -15,6 +15,7 @@ const DIMENSIONS = [
 
 const JOBS = [
   { key: 'ishares_holdings',  label: 'iShares holdings' },
+  { key: 'etf_holdings',      label: 'Vanguard + HSBC holdings' },
   { key: 'position_snapshot', label: 'Position snapshot' },
 ];
 

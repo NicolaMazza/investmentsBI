@@ -417,7 +417,30 @@ tbody tr:hover { background: var(--bg-secondary); cursor: pointer; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
-  body { padding: 12px; }
+  body { padding: 8px; }
+
+  .dashboard { padding: 14px; }
+
   .main-row, .main-row.no-drill { grid-template-columns: 1fr; }
+
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
+
+  .header {
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .header-title { font-size: 16px; }
+  .header-subtitle { font-size: 12px; }
+  .header-right { width: 100%; justify-content: space-between; }
+
+  .kpi-card { padding: 10px 12px; }
+  .kpi-label { font-size: 11px; }
+  .kpi-value { font-size: 17px; }
+
+  /* Treemap SVG: let the adaptive viewBox breathe — no fixed height override */
+  #treemap-svg { width: 100%; }
+
+  /* Drill panel on mobile gets full width but reduced padding */
+  .panel { padding: 12px; }
 }

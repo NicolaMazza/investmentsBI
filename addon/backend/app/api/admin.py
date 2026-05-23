@@ -14,9 +14,10 @@ _JOBS: dict[str, object] = {}
 def _load_jobs() -> dict[str, object]:
     global _JOBS
     if not _JOBS:
-        from app.jobs import ishares_holdings, position_snapshot
+        from app.jobs import etf_holdings, ishares_holdings, position_snapshot
         _JOBS = {
             "ishares_holdings": ishares_holdings.run,
+            "etf_holdings":     etf_holdings.run,
             "position_snapshot": position_snapshot.run,
         }
     return _JOBS
