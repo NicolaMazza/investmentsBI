@@ -60,6 +60,13 @@ async function fetchAllocation(dimension, date) {
   return res.json();
 }
 
+async function fetchTimeseries(dimension, days = 90) {
+  const params = new URLSearchParams({ dimension, days });
+  const res = await fetch(`api/timeseries?${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function fetchDrill(dimension, segment, date) {
   const params = new URLSearchParams({ dimension, segment });
   if (date) params.set('date', date);
@@ -158,6 +165,86 @@ function renderDonut(data, segment, onSelect) {
         if (!els.length) return;
         const lbl = labels[els[0].index];
         onSelect(lbl === segment ? null : lbl);
+      },
+    },
+  });
+}
+
+// ── Render: drift chart ───────────────────────────────────────────────────────
+
+let _driftChart = null;
+
+async function renderDrift(dimension) {
+  const wrap  = document.getElementById('drift-chart-wrap');
+  const empty = document.getElementById('drift-empty');
+  const title = document.getElementById('drift-title');
+  const dim   = DIMENSIONS.find(d => d.key === dimension) || DIMENSIONS[0];
+  title.textContent = `${dim.label} drift (90d)`;
+
+  let ts;
+  try {
+    ts = await fetchTimeseries(dimension, 90);
+  } catch (e) {
+    return; // silently skip if API fails
+  }
+
+  if (!ts.dates || ts.dates.length < 2) {
+    wrap.hidden  = true;
+    empty.hidden = false;
+    if (_driftChart) { _driftChart.destroy(); _driftChart = null; }
+    return;
+  }
+  wrap.hidden  = false;
+  empty.hidden = true;
+
+  const palette = TM_COLORS;  // reuse treemap palette
+  const datasets = ts.series.map((s, i) => ({
+    label:           s.label,
+    data:            s.data,
+    borderColor:     palette[i % palette.length],
+    backgroundColor: palette[i % palette.length] + '28',
+    borderWidth:     2,
+    pointRadius:     ts.dates.length > 30 ? 0 : 3,
+    tension:         0.3,
+    fill:            false,
+  }));
+
+  if (_driftChart) { _driftChart.destroy(); _driftChart = null; }
+
+  _driftChart = new Chart(document.getElementById('drift-canvas'), {
+    type: 'line',
+    data: { labels: ts.dates, datasets },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { boxWidth: 12, font: { size: 11 } },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxTicksLimit: 8,
+            font: { size: 11 },
+            maxRotation: 0,
+          },
+          grid: { display: false },
+        },
+        y: {
+          ticks: {
+            callback: v => v + '%',
+            font: { size: 11 },
+          },
+          grid: { color: 'rgba(0,0,0,0.06)' },
+        },
       },
     },
   });
@@ -307,6 +394,7 @@ async function render() {
     await renderDrill(data, segment);
     renderTable(data);
     renderStubBanner(data);
+    renderDrift(dimension);  // async, fires and forgets — won't block UI
   } catch (err) {
     console.error('Render failed:', err);
     const sub = document.getElementById('header-subtitle');
@@ -343,8 +431,8 @@ async function renderAdmin() {
       <div class="admin-section">
         <h3>Test data</h3>
         <div class="admin-row">
-          <span>Seed Δ 30d data (copies today → 32 days ago)</span>
-          <button class="tonal-btn" onclick="triggerBackfill(32)">Seed</button>
+          <span>Seed 90d drift chart data (random walk from today)</span>
+          <button class="tonal-btn" onclick="triggerBackfill(90)">Seed</button>
         </div>
         <div class="job-result" id="backfill-result"></div>
       </div>`;
@@ -372,7 +460,7 @@ async function triggerBackfill(days) {
     const res  = await fetch(`api/admin/backfill?days=${days}`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || res.statusText);
-    el.textContent = `✓ Wrote ${data.rows_written} rows for ${data.target_date} — reload to see Δ 30d`;
+    el.textContent = `✓ Wrote ${data.rows_written} rows (${data.from_date} → ${data.to_date}) — reload to see drift chart`;
   } catch (err) {
     el.textContent = `✗ ${err.message}`;
   }

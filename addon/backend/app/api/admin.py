@@ -40,21 +40,23 @@ def refresh(job: str, background_tasks: BackgroundTasks) -> dict[str, str]:
 
 @router.post("/admin/backfill")
 def backfill_allocation(
-    days: int = Query(32, ge=1, le=365, description="Seed a snapshot N days in the past"),
+    days: int = Query(90, ge=7, le=365, description="Seed daily snapshots going back N days"),
 ) -> dict:
-    """Copy today's portfolio_allocation_snapshot to today-N days.
+    """Seed portfolio_allocation_snapshot with synthetic historical data.
 
-    Used to generate historical data for testing the Δ 30d column.
-    The copied rows get a small synthetic ±noise on weight_pct so the
-    delta is non-zero and visually interesting.
-    Idempotent: re-running for the same offset overwrites the previous seed.
+    Copies today's snapshot to every day from today-days to yesterday,
+    applying a slow random walk (±2 % per step) so segments drift
+    realistically over time.  Existing rows for those dates are replaced.
+    Useful for testing the drift chart and Δ 30d column before real
+    historical data has accumulated.
+
+    Idempotent: safe to re-run.
     """
     import random
     from app.db.reporting import PortfolioAllocationSnapshot
     from app.db.reporting_session import SessionLocal
 
     today = datetime.date.today()
-    target_date = today - datetime.timedelta(days=days)
 
     session = SessionLocal()
     try:
@@ -70,36 +72,49 @@ def backfill_allocation(
                 detail="No allocation snapshot for today — run 'aggregate_allocation' first.",
             )
 
-        # Delete any existing rows for target_date
+        # Delete all existing seeded rows in the back-fill window
+        cutoff = today - datetime.timedelta(days=days)
         session.query(PortfolioAllocationSnapshot).filter(
-            PortfolioAllocationSnapshot.as_of_date == target_date,
+            PortfolioAllocationSnapshot.as_of_date >= cutoff,
+            PortfolioAllocationSnapshot.as_of_date < today,
         ).delete()
 
-        rng = random.Random(int(target_date.strftime("%Y%m%d")))  # deterministic seed
+        # Build a per-segment random walk backwards from today.
+        # Each day steps ±2 % relative to the previous day's weight.
+        rng = random.Random(42)  # fixed seed → reproducible
+        # multipliers[segment_key] starts at 1.0, walks back in time
+        multipliers: dict[str, float] = {r.segment_key: 1.0 for r in today_rows}
+
         written = 0
-        for r in today_rows:
-            # Apply ±15% relative noise to weight and value so deltas look realistic
-            noise = 1.0 + rng.uniform(-0.15, 0.15)
-            new_weight = max(0.0, float(r.weight_pct) * noise)
-            new_value  = max(0.0, float(r.value_eur)  * noise)
-            session.add(
-                PortfolioAllocationSnapshot(
-                    as_of_date=target_date,
-                    dimension=r.dimension,
-                    segment_key=r.segment_key,
-                    segment_label=r.segment_label,
-                    value_eur=round(new_value, 2),
-                    weight_pct=round(new_weight, 6),
-                    holding_count=r.holding_count,
+        for offset in range(1, days + 1):
+            target_date = today - datetime.timedelta(days=offset)
+            # Step each segment's multiplier by ±2%
+            for key in multipliers:
+                multipliers[key] *= 1.0 + rng.uniform(-0.02, 0.02)
+                multipliers[key] = max(0.1, multipliers[key])  # floor at 10% of today
+
+            for r in today_rows:
+                m = multipliers[r.segment_key]
+                session.add(
+                    PortfolioAllocationSnapshot(
+                        as_of_date=target_date,
+                        dimension=r.dimension,
+                        segment_key=r.segment_key,
+                        segment_label=r.segment_label,
+                        value_eur=round(float(r.value_eur) * m, 2),
+                        weight_pct=round(float(r.weight_pct) * m, 6),
+                        holding_count=r.holding_count,
+                    )
                 )
-            )
-            written += 1
+                written += 1
 
         session.commit()
-        log.info("backfill: wrote %d rows for %s (today-%d)", written, target_date, days)
+        log.info("backfill: wrote %d rows across %d days back from %s", written, days, today)
         return {
             "status":      "ok",
-            "target_date": str(target_date),
+            "from_date":   str(cutoff),
+            "to_date":     str(today - datetime.timedelta(days=1)),
+            "days_seeded": days,
             "rows_written": written,
         }
     except HTTPException:
